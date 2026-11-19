@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+html,
+body {
+  overflow-x: clip;
+}
+
+/* Enable smooth scrolling on desktop devices with fine pointer, while preserving native unhindered touch momentum on mobile */
+@media (min-width: 768px) and (pointer: fine) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Ensure smooth inertial scrolling on mobile WebKit */
+.overflow-x-auto,
+.overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Ensure all numerals (prices, IDs, dates, quantities) render with aligned lining digits (no hanging or uneven digits) */
+html,
+body,
+*,
+*::before,
+*::after {
+  font-variant-numeric: lining-nums tabular-nums;
+  -webkit-font-feature-settings: "lnum" 1, "tnum" 1;
+  font-feature-settings: "lnum" 1, "tnum" 1;
+}
+
+[class*="font-cormorant"],
+.font-serif {
+  font-variant-numeric: lining-nums tabular-nums !important;
+  -webkit-font-feature-settings: "lnum" 1, "tnum" 1 !important;
+  font-feature-settings: "lnum" 1, "tnum" 1 !important;
+}
+
+
