@@ -980,10 +980,11 @@ export default function AdminHomepagePage() {
             ))}
           </div>
         </Panel>
+      </div>
 
-        {/* Bottom Save Bar with contextual AlertBox */}
-        <div className="mt-6 flex flex-col gap-3 rounded-xl border border-[#E8CFD2] bg-[#FAF1E4] p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 flex-1">
+      {/* Bottom Save Bar with contextual AlertBox */}
+      <div className="mt-6 flex flex-col gap-3 rounded-xl border border-[#E8CFD2] bg-[#FAF1E4] p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 flex-1">
             {savedBanner ? (
               <AlertBox
                 variant="success"
@@ -1001,7 +1002,6 @@ export default function AdminHomepagePage() {
             {savedBanner ? "Changes Live!" : "Save All Changes"}
           </button>
         </div>
-      </div>
     </AdminShell>
   );
 }

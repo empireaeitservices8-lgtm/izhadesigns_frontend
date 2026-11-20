@@ -1,41 +1,90 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { PageShell, PageTitle, card } from "@/components/izha/ui";
-import { KEYS, useStored } from "@/lib/izha-store";
-import { DEFAULT_CUSTOMER_CARE, type CustomerCareSettings } from "@/lib/demo-store";
+import { apiUrl } from "@/lib/api-config";
+import {
+  DEFAULT_PAGE_PRIVACY,
+  type EditablePageData,
+} from "@/lib/pages-content";
 
 export default function PrivacyPolicyPage() {
-  const [care, setCare] = useStored<CustomerCareSettings>(
-    KEYS.customerCare,
-    DEFAULT_CUSTOMER_CARE
-  );
+  const [page, setPage] = useState<EditablePageData>(DEFAULT_PAGE_PRIVACY);
 
   useEffect(() => {
-    fetch("/api/content/customerCare")
+    fetch(apiUrl("/content/page_privacy"))
       .then((res) => res.json())
       .then((data) => {
         if (data?.success && data?.data) {
-          setCare(data.data);
+          setPage(data.data);
         }
       })
       .catch(() => {});
-  }, [setCare]);
+  }, []);
 
-  const priv = care.privacy || DEFAULT_CUSTOMER_CARE.privacy;
+  const sections = page.sections && page.sections.length > 0 ? page.sections : DEFAULT_PAGE_PRIVACY.sections;
+  const contactEmail = page.contactInfo?.email || DEFAULT_PAGE_PRIVACY.contactInfo?.email || "izhablooms@gmail.com";
 
   return (
     <PageShell>
       <PageTitle
-        title={priv.title || "Privacy Policy"}
-        sub={priv.sub || "How Izha Blooms protects your personal & delivery details."}
+        title={page.title || DEFAULT_PAGE_PRIVACY.title}
+        sub={page.sub || DEFAULT_PAGE_PRIVACY.sub}
       />
-      <div className={`${card} mx-auto mt-10 max-w-3xl space-y-4 p-6 text-[14px] leading-relaxed text-[#6f6565]`}>
-        <p>{priv.content || "We respect your privacy and only collect contact and delivery information needed to fulfil orders, share tracking updates, and assist you personally."}</p>
-        <p>
-          For privacy inquiries, write to{" "}
-          <strong className="text-[#332B2B]">{priv.contactEmail || "izhablooms@gmail.com"}</strong>.
-        </p>
+      <div className={`${card} mx-auto mt-6 sm:mt-10 max-w-3xl space-y-6 p-4 sm:p-6 md:p-8 text-[14px] leading-relaxed text-[#6f6565]`}>
+        {page.intro && (
+          <p className="leading-7 font-normal text-[#332B2B]">
+            {page.intro}
+          </p>
+        )}
+
+        {sections.map((section, idx) => (
+          <section key={section.id || idx} className="space-y-2">
+            <h2 className="text-base sm:text-lg font-semibold text-[#332B2B]">
+              {section.title}
+            </h2>
+
+            {section.description && (
+              <p className="leading-relaxed">{section.description}</p>
+            )}
+
+            {section.contentType === "bullets" && (
+              <ul className="list-disc space-y-2 pl-5">
+                {section.items.map((item, i) => (
+                  <li key={i}>{item}</li>
+                ))}
+              </ul>
+            )}
+
+            {section.contentType === "numbers" && (
+              <ol className="list-decimal space-y-2 pl-5">
+                {section.items.map((item, i) => (
+                  <li key={i}>{item}</li>
+                ))}
+              </ol>
+            )}
+
+            {section.contentType === "paragraph" && (
+              <div className="space-y-2">
+                {section.items.map((item, i) => (
+                  <p key={i}>{item}</p>
+                ))}
+              </div>
+            )}
+          </section>
+        ))}
+
+        <div className="border-t border-[#eee5e0] pt-4">
+          <p>
+            For privacy inquiries, write to{" "}
+            <strong className="text-[#332B2B]">{contactEmail}</strong>.
+          </p>
+          {page.closingMessage && (
+            <p className="mt-3 text-xs sm:text-sm italic text-[#887878]">
+              {page.closingMessage}
+            </p>
+          )}
+        </div>
       </div>
     </PageShell>
   );

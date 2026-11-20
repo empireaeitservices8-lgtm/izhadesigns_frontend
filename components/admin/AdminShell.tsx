@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   Truck,
   X,
+  FileText,
 } from "lucide-react";
 import { KEYS, type AppUser } from "@/lib/izha-store";
 import { focusRing, serif } from "@/components/izha/ui";
@@ -55,7 +56,7 @@ const BASE_NAV: NavItem[] = [
   { label: "Delivery Settings", href: "/admin/delivery", icon: Truck },
   { label: "Offers & Combos", href: "/admin/offers", icon: Percent },
   { label: "Home & Instagram", href: "/admin/homepage", icon: ImageIcon },
-  // { label: "Customer Care", href: "/admin/customer-care", icon: LifeBuoy },
+  { label: "Website Pages", href: "/admin/website-pages", icon: FileText },
   {
     label: "Admin Management",
     href: "/admin/admin-management",
