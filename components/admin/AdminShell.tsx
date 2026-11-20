@@ -170,6 +170,9 @@ export default function AdminShell({
       localStorage.removeItem("izha_admin_user");
       localStorage.removeItem(KEYS.token);
       localStorage.removeItem(KEYS.user);
+      window.dispatchEvent(new CustomEvent("izha-account-change", { detail: null }));
+      window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.cart }));
+      window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.user }));
     }
     setIsAuthenticated(false);
     setCurrentAdmin(null);

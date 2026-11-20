@@ -193,6 +193,9 @@ export default function UnifiedAuthForm({
             localStorage.setItem("izha_admin_user", JSON.stringify(receivedUser));
             localStorage.setItem(KEYS.token, data.token);
             localStorage.setItem(KEYS.user, JSON.stringify(receivedUser));
+            window.dispatchEvent(new CustomEvent("izha-account-change", { detail: receivedUser }));
+            window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.cart }));
+            window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.user }));
           } catch (_) {}
         }
 
@@ -209,8 +212,13 @@ export default function UnifiedAuthForm({
         try {
           localStorage.setItem(KEYS.token, data.token);
           localStorage.setItem(KEYS.user, JSON.stringify(receivedUser));
+          localStorage.removeItem("izha_admin_token");
+          localStorage.removeItem("izha_admin_user");
           localStorage.removeItem(KEYS.addresses);
           if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("izha-account-change", { detail: receivedUser }));
+            window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.cart }));
+            window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.user }));
             window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.addresses }));
           }
         } catch (_) {}
@@ -226,6 +234,8 @@ export default function UnifiedAuthForm({
           try {
             localStorage.setItem("izha_admin_token", data.token);
             localStorage.setItem("izha_admin_user", JSON.stringify(receivedUser));
+            window.dispatchEvent(new CustomEvent("izha-account-change", { detail: receivedUser }));
+            window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.cart }));
           } catch (_) {}
         }
         // SCENARIOS B & C: Main Admin or Secondary Admin redirect to Admin Dashboard

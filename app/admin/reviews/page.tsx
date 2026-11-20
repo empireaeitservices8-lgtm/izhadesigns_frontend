@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, Eye, EyeOff, MessageSquare, Plus, Search, Star, Trash2, Upload, X } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, MessageSquare, Plus, Search, Star, Trash2 } from "lucide-react";
 import { KEYS } from "@/lib/izha-store";
 import type { AdminProduct } from "@/lib/demo-store";
 import AdminShell, { inputCls, outlineBtn } from "@/components/admin/AdminShell";
@@ -51,30 +51,6 @@ function readReview(r: any): ReviewView {
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
-
-/** Shrinks the chosen photo so it stays small. */
-function compressImage(file: File, maxSide = 480, quality = 0.8): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Could not read the file."));
-    reader.onload = () => {
-      const img = new window.Image();
-      img.onerror = () => reject(new Error("This file is not a valid image."));
-      img.onload = () => {
-        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return reject(new Error("Could not process the image."));
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", quality));
-      };
-      img.src = String(reader.result);
-    };
-    reader.readAsDataURL(file);
-  });
-}
 
 function Stars({ value }: { value: number }) {
   return (
@@ -159,7 +135,6 @@ export default function AdminReviewsPage() {
   const [place, setPlace] = useState("");
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
-  const [image, setImage] = useState("");
   const [saving, setSaving] = useState(false);
 
   const noticeRef = useRef<HTMLDivElement>(null);
@@ -297,23 +272,6 @@ export default function AdminReviewsPage() {
     }
   };
 
-  const handleImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      return setNotice({ type: "error", text: "Please choose an image file (JPG, PNG or WebP)." });
-    }
-    try {
-      setImage(await compressImage(file));
-    } catch (err) {
-      setNotice({
-        type: "error",
-        text: err instanceof Error ? err.message : "Could not add the image.",
-      });
-    }
-  };
-
   const addReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!product || saving) return;
@@ -335,7 +293,6 @@ export default function AdminReviewsPage() {
           place: place.trim() || "Kerala",
           rating: clampRating(rating),
           text: comment.trim(),
-          image,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -346,7 +303,6 @@ export default function AdminReviewsPage() {
       setPlace("");
       setComment("");
       setRating(5);
-      setImage("");
       setNotice({ type: "success", text: `Review added to "${product.name}".` });
     } catch {
       setNotice({ type: "error", text: "Could not save the review. Please try again." });
@@ -563,44 +519,6 @@ export default function AdminReviewsPage() {
                       maxLength={600}
                     />
                   </label>
-
-                  {/* Photo */}
-                  <div>
-                    <span className="mb-1 block text-[13px] font-medium text-[#332B2B]">
-                      Photo (optional)
-                    </span>
-                    <div className="flex flex-wrap items-center gap-3">
-                      {image ? (
-                        <div className="relative h-20 w-20 overflow-hidden rounded-sm border border-[#E8B8C5] bg-[#FAF3E8]">
-                          <Image
-                            src={image}
-                            alt="Review photo preview"
-                            fill
-                            unoptimized
-                            sizes="80px"
-                            className="object-cover"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setImage("")}
-                            aria-label="Remove photo"
-                            className="absolute right-1 top-1 cursor-pointer rounded-full bg-white/90 p-0.5 text-[#B20947]"
-                          >
-                            <X size={13} />
-                          </button>
-                        </div>
-                      ) : null}
-                      <label className={`${outlineBtn} cursor-pointer gap-1.5`}>
-                        <Upload size={14} /> {image ? "Change photo" : "Upload photo"}
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleImage}
-                          className="sr-only"
-                        />
-                      </label>
-                    </div>
-                  </div>
 
                   <button
                     type="submit"

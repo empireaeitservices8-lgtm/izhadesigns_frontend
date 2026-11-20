@@ -20,12 +20,14 @@ import {
   KEYS,
   inr,
   useStored,
+  getAccountAddressKey,
   type Address,
   type AppUser,
   type CartItem,
   type WishItem,
 } from "@/lib/izha-store";
-import { DEFAULT_ORDERS, type AdminProduct, type DemoOrder } from "@/lib/demo-store";
+import { apiUrl } from "@/lib/api-config";
+import { type AdminProduct, type DemoOrder } from "@/lib/demo-store";
 import { WhatsAppSvg } from "@/components/WhatsAppFloat";
 import AlertBox from "@/components/izha/AlertBox";
 import UnifiedAuthForm from "@/components/izha/UnifiedAuthForm";
@@ -130,8 +132,12 @@ function AccountView() {
     try {
       localStorage.removeItem(KEYS.token);
       localStorage.removeItem(KEYS.user);
+      localStorage.removeItem("izha_admin_token");
+      localStorage.removeItem("izha_admin_user");
       localStorage.removeItem(KEYS.addresses);
       if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("izha-account-change", { detail: null }));
+        window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.cart }));
         window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.addresses }));
         window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.user }));
       }
@@ -215,16 +221,19 @@ function SignedIn({
 }) {
   const [cart] = useStored<CartItem[]>(KEYS.cart, []);
   const [wish] = useStored<WishItem[]>(KEYS.wish, []);
-  const [orders] = useStored<DemoOrder[]>(KEYS.orders, DEFAULT_ORDERS);
   const [dbOrders, setDbOrders] = useState<DemoOrder[]>([]);
   const [tab, setTab] = useState<"orders" | "addresses">("orders");
   const [showAllOrders, setShowAllOrders] = useState(false);
 
   useEffect(() => {
+    // Clear previously loaded order data when logging out or switching accounts
+    setDbOrders([]);
     const token = typeof window !== "undefined" ? localStorage.getItem(KEYS.token) : null;
-    fetch("/api/orders", {
+    if (!token) return;
+
+    fetch(apiUrl("/orders"), {
       headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        Authorization: `Bearer ${token}`,
       },
     })
       .then((res) => res.json())
@@ -233,7 +242,7 @@ function SignedIn({
           const mapped: DemoOrder[] = data.orders.map((bo: any) => ({
             id: bo.orderNumber || bo.id,
             createdAt: bo.createdAt ? new Date(bo.createdAt).toLocaleDateString("en-IN") : "Recent",
-            customerId: bo.customerEmail || "customer",
+            customerId: bo.customerId || bo.customerEmail || "customer",
             customerName: bo.customerName,
             customerPhone: bo.customerPhone,
             customerEmail: bo.customerEmail,
@@ -253,31 +262,37 @@ function SignedIn({
             source: "Direct",
           }));
           setDbOrders(mapped);
+        } else {
+          setDbOrders([]);
         }
       })
-      .catch(() => {});
-  }, [user]);
+      .catch(() => {
+        setDbOrders([]);
+      });
+  }, [user?.id, user?.email]);
 
-  const allOrders = useMemo(() => {
-    const combined = [...dbOrders];
-    for (const o of orders) {
-      if (!combined.some((c) => c.id === o.id)) {
-        combined.push(o);
-      }
-    }
-    return combined;
-  }, [dbOrders, orders]);
+  useEffect(() => {
+    const handleAccountChange = () => {
+      setDbOrders([]);
+    };
+    window.addEventListener("izha-account-change", handleAccountChange);
+    return () => {
+      window.removeEventListener("izha-account-change", handleAccountChange);
+    };
+  }, []);
 
   const first = user.name.split(" ")[0];
   const cartCount = cart.reduce((n, i) => n + i.qty, 0);
+
+  // Strictly filter orders to only include orders belonging to the currently authenticated customer
   const myOrders = useMemo(() => {
-    const matched = allOrders.filter(
-      (o) =>
-        (user.email && o.customerEmail.toLowerCase() === user.email.toLowerCase()) ||
-        (user.phone && o.customerPhone === user.phone)
-    );
-    return matched.length > 0 ? matched : allOrders.slice(0, 4);
-  }, [allOrders, user]);
+    return dbOrders.filter((o) => {
+      const matchId = user.id && o.customerId && o.customerId === user.id;
+      const matchEmail = user.email && o.customerEmail && o.customerEmail.toLowerCase() === user.email.toLowerCase();
+      const matchPhone = user.phone && o.customerPhone && o.customerPhone === user.phone;
+      return matchId || matchEmail || matchPhone;
+    });
+  }, [dbOrders, user]);
 
   const visibleOrders = showAllOrders ? myOrders : myOrders.slice(0, 4);
 
@@ -473,7 +488,7 @@ function SignedIn({
 
           {/* Addresses (kept mounted so a half-filled form is not lost when switching tabs) */}
           <div role="tabpanel" className={tab === "addresses" ? "block" : "hidden"}>
-            <AddressBook />
+            <AddressBook user={user} />
           </div>
         </section>
 
@@ -547,7 +562,7 @@ function ProfileCard({ user, setUser }: { user: AppUser; setUser: (u: AppUser) =
 }
 
 /* ---------- Saved addresses: compact cards in a grid ---------- */
-function AddressBook() {
+function AddressBook({ user }: { user: AppUser | null }) {
   const [list, setList] = useState<Address[]>([]);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
@@ -555,29 +570,58 @@ function AddressBook() {
   const set = (k: keyof typeof f) => (v: string) => setF((s) => ({ ...s, [k]: v }));
 
   const loadAddresses = () => {
-    const token = typeof window !== "undefined" ? localStorage.getItem(KEYS.token) : null;
-    if (!token) {
+    // Admins do not have customer saved addresses
+    const isAdm =
+      !user ||
+      user.role === "admin" ||
+      user.role === "SUPER_ADMIN" ||
+      user.role === "SECONDARY_ADMIN" ||
+      user.isAdmin === true;
+    if (isAdm) {
       setList([]);
       return;
     }
-    fetch("/api/auth/addresses", {
+
+    const storageKey = getAccountAddressKey(user);
+    if (storageKey && typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem(storageKey);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed)) {
+            setList(parsed);
+          }
+        }
+      } catch (_) {}
+    }
+
+    const token = typeof window !== "undefined" ? localStorage.getItem(KEYS.token) : null;
+    if (!token) {
+      return;
+    }
+
+    fetch(apiUrl("/auth/addresses"), {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json())
       .then((data) => {
         if (data?.success && Array.isArray(data.addresses)) {
-          setList(
-            data.addresses.map((a: any) => ({
-              id: a.id,
-              label: a.label || "Home",
-              name: a.name || "",
-              phone: a.phone || "",
-              line: a.line || "",
-              city: a.city || "",
-              pincode: a.pincode || "",
-              isDefault: Boolean(a.is_default || a.isDefault),
-            }))
-          );
+          const mapped = data.addresses.map((a: any) => ({
+            id: a.id,
+            label: a.label || "Home",
+            name: a.name || "",
+            phone: a.phone || "",
+            line: a.line || "",
+            city: a.city || "",
+            pincode: a.pincode || "",
+            isDefault: Boolean(a.is_default || a.isDefault),
+          }));
+          setList(mapped);
+          if (storageKey && typeof window !== "undefined") {
+            try {
+              localStorage.setItem(storageKey, JSON.stringify(mapped));
+            } catch (_) {}
+          }
         }
       })
       .catch(() => {});
@@ -585,7 +629,7 @@ function AddressBook() {
 
   useEffect(() => {
     loadAddresses();
-  }, []);
+  }, [user?.id, user?.email]);
 
   const add = async () => {
     if (f.name.trim().length < 2) return setError("Enter the name of the person receiving the order.");
@@ -596,9 +640,19 @@ function AddressBook() {
     setError("");
 
     const token = typeof window !== "undefined" ? localStorage.getItem(KEYS.token) : null;
+    const storageKey = getAccountAddressKey(user);
+    const newAddr: Address = {
+      id: `a${Date.now()}`,
+      ...f,
+      name: f.name.trim(),
+      line: f.line.trim(),
+      city: f.city.trim(),
+      isDefault: list.length === 0,
+    };
+
     if (token) {
       try {
-        await fetch("/api/auth/addresses", {
+        await fetch(apiUrl("/auth/addresses"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -613,24 +667,40 @@ function AddressBook() {
           }),
         });
         loadAddresses();
-      } catch (_) {}
+      } catch (_) {
+        setList((l) => {
+          const next = [...l, newAddr];
+          if (storageKey) try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch (_) {}
+          return next;
+        });
+      }
     } else {
-      setList((l) => [
-        ...l,
-        { id: `a${Date.now()}`, ...f, name: f.name.trim(), line: f.line.trim(), city: f.city.trim(), isDefault: l.length === 0 },
-      ]);
+      setList((l) => {
+        const next = [...l, newAddr];
+        if (storageKey) try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch (_) {}
+        return next;
+      });
     }
 
     setF({ label: "Home", name: "", phone: "", line: "", city: "", pincode: "" });
     setOpen(false);
   };
 
-  const makeDefault = (id: string) => setList((l) => l.map((a) => ({ ...a, isDefault: a.id === id })));
+  const makeDefault = (id: string) => {
+    const storageKey = getAccountAddressKey(user);
+    setList((l) => {
+      const next = l.map((a) => ({ ...a, isDefault: a.id === id }));
+      if (storageKey) try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+  };
+
   const remove = async (id: string) => {
     const token = typeof window !== "undefined" ? localStorage.getItem(KEYS.token) : null;
+    const storageKey = getAccountAddressKey(user);
     if (token) {
       try {
-        await fetch(`/api/auth/addresses/${encodeURIComponent(id)}`, {
+        await fetch(apiUrl(`/auth/addresses/${encodeURIComponent(id)}`), {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -639,6 +709,7 @@ function AddressBook() {
     setList((l) => {
       const next = l.filter((a) => a.id !== id);
       if (next.length && !next.some((a) => a.isDefault)) next[0] = { ...next[0], isDefault: true };
+      if (storageKey) try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch (_) {}
       return next;
     });
   };

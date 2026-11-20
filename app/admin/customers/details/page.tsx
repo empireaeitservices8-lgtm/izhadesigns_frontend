@@ -91,6 +91,10 @@ function CustomerDetailsInner() {
   // Alert box open/closed (kept above the early return so hooks stay in order)
   const [confirmOpen, setConfirmOpen] = useState(false);
 
+  // Local status override so Activate/Deactivate always updates the screen,
+  // even when the customer was built from an order match (not in `customers`).
+  const [statusOverride, setStatusOverride] = useState<"Active" | "Inactive" | null>(null);
+
   useEffect(() => {
     const adminToken = typeof window !== "undefined" ? localStorage.getItem("izha_admin_token") : null;
     const token = adminToken || (typeof window !== "undefined" ? localStorage.getItem(KEYS.token) : null);
@@ -192,30 +196,68 @@ function CustomerDetailsInner() {
       (customer.email && o.customerEmail?.toLowerCase() === customer.email.toLowerCase()) ||
       (customer.phone && o.customerPhone === customer.phone)
   );
+  const validCustomerOrders = customerOrders.filter(
+    (o) => o.status !== "Cancelled" && o.status !== "Failed"
+  );
   const totalSpent =
     customer.totalSpent !== undefined
-      ? customer.totalSpent
-      : customerOrders.reduce((s, o) => s + (Number(o.total) || 0), 0);
-  const isActive = (customer.status ?? "Active") === "Active";
+      ? Number(customer.totalSpent)
+      : validCustomerOrders.reduce((s, o) => s + (Number(o.total) || 0), 0);
+  const currentStatus: "Active" | "Inactive" =
+    statusOverride ?? ((customer.status ?? "Active") as "Active" | "Inactive");
+  const isActive = currentStatus === "Active";
+
+  const persistCustomers = (list: DemoCustomer[]) => {
+    try {
+      localStorage.setItem(KEYS.customers, JSON.stringify(list));
+    } catch (_) {}
+  };
 
   const toggleStatus = async () => {
+    const previousStatus = currentStatus;
     const nextStatus: "Active" | "Inactive" = isActive ? "Inactive" : "Active";
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === customer.id ? { ...c, status: nextStatus } : c))
-    );
+
+    // Update the screen immediately
+    setStatusOverride(nextStatus);
+    setCustomers((prev) => {
+      const updated = prev.map((c) =>
+        c.id === customer.id ? { ...c, status: nextStatus } : c
+      );
+      persistCustomers(updated);
+      return updated;
+    });
+
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem(KEYS.token) : null;
-      await fetch(`/api/admin/customers/${encodeURIComponent(customer.id)}/status`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ active: nextStatus === "Active" }),
-      });
+      const adminToken = localStorage.getItem("izha_admin_token");
+      const token = adminToken || localStorage.getItem(KEYS.token);
+      const res = await fetch(
+        apiUrl(`/admin/customers/${encodeURIComponent(customer.id)}/status`),
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            "x-admin-request": "true",
+          },
+          body: JSON.stringify({
+            active: nextStatus === "Active",
+            status: nextStatus,
+          }),
+        }
+      );
+      if (!res.ok) throw new Error(`Status update failed (${res.status})`);
       window.dispatchEvent(new Event("izha-store-sync"));
     } catch (err) {
       console.error(err);
+      // Server rejected it: put the old status back
+      setStatusOverride(previousStatus);
+      setCustomers((prev) => {
+        const reverted = prev.map((c) =>
+          c.id === customer.id ? { ...c, status: previousStatus } : c
+        );
+        persistCustomers(reverted);
+        return reverted;
+      });
     }
   };
 
@@ -293,7 +335,7 @@ function CustomerDetailsInner() {
           </div>
 
           <div className="mt-5 grid grid-cols-2 gap-3">
-            <StatCard label="Total Orders" value={String(customerOrders.length)} />
+            <StatCard label="Total Orders" value={String(customer.ordersCount !== undefined ? customer.ordersCount : validCustomerOrders.length)} />
             <StatCard label="Lifetime Spend" value={inr(totalSpent)} />
           </div>
 

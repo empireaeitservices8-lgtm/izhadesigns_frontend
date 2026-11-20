@@ -19,8 +19,24 @@ import AdminShell, { inputCls, outlineBtn } from "@/components/admin/AdminShell"
 import { serif } from "@/components/izha/ui";
 import { STAGES, type StageType, type VisitEvent } from "@/lib/visit-tracker";
 import { KEYS, inr } from "@/lib/izha-store";
+import { apiUrl } from "@/lib/api-config";
 
 const CRIMSON = "#B20947";
+
+const PLACED_ORDER_STATUSES = new Set([
+  "order placed",
+  "confirmed",
+  "processing",
+  "packed",
+  "shipped",
+  "out for delivery",
+  "delivered",
+]);
+
+function isPlacedOrder(status?: string | null): boolean {
+  if (!status) return true;
+  return PLACED_ORDER_STATUSES.has(status.trim().toLowerCase());
+}
 
 type Range = "7" | "30" | "all";
 
@@ -156,7 +172,7 @@ export default function AdminReportsPage() {
     const token = getAdminToken();
     try {
       // 1. Visitor funnel events
-      const resVisits = await fetch("/api/visits", {
+      const resVisits = await fetch(apiUrl("/visits"), {
         cache: "no-store",
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -169,7 +185,7 @@ export default function AdminReportsPage() {
       }
 
       // 2. Customer accounts and order metrics
-      const resCust = await fetch("/api/admin/customers", {
+      const resCust = await fetch(apiUrl("/admin/customers"), {
         cache: "no-store",
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -179,7 +195,7 @@ export default function AdminReportsPage() {
       const dataCust = await resCust.json().catch(() => ({}));
 
       // 3. All orders for comprehensive cross-reporting
-      const resOrders = await fetch("/api/orders?admin=true", {
+      const resOrders = await fetch(apiUrl("/orders?admin=true"), {
         cache: "no-store",
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -191,10 +207,13 @@ export default function AdminReportsPage() {
       const rawOrders = Array.isArray(dataOrders?.orders) ? dataOrders.orders : [];
       const rawCustomers = Array.isArray(dataCust?.customers) ? dataCust.customers : [];
 
+      // Strictly filter for genuine placed orders (excludes cancelled, failed, cart, draft, abandoned states)
+      const validOrders = rawOrders.filter((ord: any) => isPlacedOrder(ord?.status));
+
       const map = new Map<string, CustomerReportRow>();
 
-      // Group metrics from actual placed orders
-      for (const ord of rawOrders) {
+      // Group metrics exclusively from actual placed orders
+      for (const ord of validOrders) {
         const key = (ord.customerEmail || ord.customerPhone || ord.customerName || "").toLowerCase().trim();
         if (!key) continue;
 
@@ -225,11 +244,13 @@ export default function AdminReportsPage() {
         }
       }
 
-      // Add registered users who may not have placed orders yet
+      // Add registered users who may not have placed orders yet (cart items do NOT count as placed orders)
       for (const c of rawCustomers) {
         const key = (c.email || c.phone || c.name || "").toLowerCase().trim();
         if (!key) continue;
         if (!map.has(key)) {
+          const cOrders = Number(c.ordersCount) || 0;
+          const cSpent = Number(c.totalSpent) || 0;
           map.set(key, {
             id: c.id || key,
             name: c.name || "Customer",
@@ -237,15 +258,25 @@ export default function AdminReportsPage() {
             phone: c.phone || "",
             city: c.city || "Kerala",
             state: c.state || "Kerala",
-            ordersCount: Number(c.ordersCount) || 0,
-            totalSpent: Number(c.totalSpent) || 0,
-            lastOrderDate: c.joinedAt || new Date().toISOString(),
+            ordersCount: cOrders,
+            totalSpent: cSpent,
+            lastOrderDate: cOrders > 0 && c.joinedAt ? c.joinedAt : "",
             joinedAt: c.joinedAt || new Date().toISOString(),
           });
         }
       }
 
-      setCustomers(Array.from(map.values()).sort((a, b) => b.totalSpent - a.totalSpent));
+      // Most recent order first; customers with no orders go to the bottom
+      setCustomers(
+        Array.from(map.values()).sort((a, b) => {
+          const aHas = a.ordersCount > 0;
+          const bHas = b.ordersCount > 0;
+          if (aHas !== bHas) return aHas ? -1 : 1;
+          const aTime = a.ordersCount > 0 ? new Date(a.lastOrderDate).getTime() || 0 : 0;
+          const bTime = b.ordersCount > 0 ? new Date(b.lastOrderDate).getTime() || 0 : 0;
+          return bTime - aTime;
+        })
+      );
       setError("");
     } catch {
       setError("Could not load reporting data. Please try again.");
@@ -270,7 +301,7 @@ export default function AdminReportsPage() {
     };
   }, [load]);
 
-  // Funnel calculations
+  // Funnel calculations: group events into sessions, isolating journeys
   const sessions = useMemo<SessionRow[]>(() => {
     const cutoff = range === "all" || !now ? 0 : now - Number(range) * 86400000;
     const map = new Map<string, VisitEvent[]>();
@@ -278,24 +309,37 @@ export default function AdminReportsPage() {
       if (!e || !e.sessionId || stageIndex(e.type) < 0) continue;
       const t = new Date(e.at).getTime();
       if (isNaN(t) || t < cutoff) continue;
-      const list = map.get(e.sessionId);
+      // Key by sessionId; if legacy sessions lumped multiple customer names, partition by sessionId + customerName
+      const custPart = (e.customerName || "guest").toLowerCase().trim();
+      const groupKey = e.sessionId.startsWith("s-") ? `${e.sessionId}__${custPart}` : e.sessionId;
+      const list = map.get(groupKey);
       if (list) list.push(e);
-      else map.set(e.sessionId, [e]);
+      else map.set(groupKey, [e]);
     }
     const rows: SessionRow[] = [];
-    map.forEach((list, sessionId) => {
+    map.forEach((list) => {
       const sorted = [...list].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
       const last = sorted[sorted.length - 1];
+      const orderPlacedEvent = sorted.find((e) => e.type === "order_placed");
+      const hasOrderPlaced = Boolean(orderPlacedEvent);
       const reached = Math.max(...sorted.map((e) => stageIndex(e.type)));
+
+      // Attribution: if an order was placed, attribute to the customer who placed the order;
+      // otherwise, attribute to whoever performed the browsing/cart activities.
+      const customerName =
+        orderPlacedEvent?.customerName ||
+        [...sorted].reverse().find((e) => e.customerName)?.customerName ||
+        "Guest visitor";
+
       rows.push({
-        sessionId,
-        customerName: [...sorted].reverse().find((e) => e.customerName)?.customerName ?? "Guest visitor",
+        sessionId: sorted[0].sessionId,
+        customerName,
         firstSeen: sorted[0].at,
         lastSeen: last.at,
         lastPage: last.page ?? "-",
         lastProduct: [...sorted].reverse().find((e) => e.productName)?.productName ?? "-",
         reached,
-        converted: reached === STAGES.length - 1,
+        converted: hasOrderPlaced, // ONLY true if order_placed event occurred in this session
       });
     });
     return rows.sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime());
@@ -362,7 +406,7 @@ export default function AdminReportsPage() {
         c.ordersCount,
         c.totalSpent,
         c.ordersCount > 0 ? Math.round(c.totalSpent / c.ordersCount) : 0,
-        c.lastOrderDate,
+        c.ordersCount > 0 && c.lastOrderDate ? c.lastOrderDate : "N/A",
       ]
         .map((v) => `"${String(v).replace(/"/g, '""')}"`)
         .join(",")
@@ -606,7 +650,7 @@ export default function AdminReportsPage() {
                             {inr(avg)}
                           </td>
                           <td className="p-3 text-[12px] text-black/55">
-                            {fmt(c.lastOrderDate)}
+                            {c.ordersCount > 0 && c.lastOrderDate ? fmt(c.lastOrderDate) : <span className="italic text-black/35">No orders yet</span>}
                           </td>
                           <td className="p-3 text-center">
                             <Link

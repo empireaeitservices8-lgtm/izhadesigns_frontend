@@ -20,10 +20,12 @@ import {
   KEYS,
   inr,
   useStored,
+  getAccountAddressKey,
   type Address,
   type AppUser,
   type CartItem,
 } from "@/lib/izha-store";
+import { apiUrl } from "@/lib/api-config";
 import {
   DEFAULT_ADMIN_PRODUCTS,
   DEFAULT_COUPONS,
@@ -139,15 +141,43 @@ export default function CheckoutPage() {
     setSelectedAddressId("new");
     setSavedAddresses([]);
 
-    if (user) {
+    const isAdm =
+      !user ||
+      user.role === "admin" ||
+      user.role === "SUPER_ADMIN" ||
+      user.role === "SECONDARY_ADMIN" ||
+      user.isAdmin === true;
+
+    if (user && !isAdm) {
       setMode("signin");
       setName(user.name || "");
       setEmail(user.email || "");
       setPhone(user.phone || "");
 
+      const storageKey = getAccountAddressKey(user);
+      if (storageKey && typeof window !== "undefined") {
+        try {
+          const cached = localStorage.getItem(storageKey);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setSavedAddresses(parsed);
+              const def = parsed.find((a: any) => a.isDefault) || parsed[0];
+              setSelectedAddressId(def.id);
+              setAddress(def.line);
+              setCity(def.city);
+              setStateName(def.state || "Kerala");
+              setPincode(def.pincode);
+              if (def.name) setName(def.name);
+              if (def.phone) setPhone(def.phone);
+            }
+          }
+        } catch (_) {}
+      }
+
       const token = typeof window !== "undefined" ? localStorage.getItem(KEYS.token) : null;
       if (token) {
-        fetch("/api/auth/addresses", {
+        fetch(apiUrl("/auth/addresses"), {
           headers: { Authorization: `Bearer ${token}` },
         })
           .then((res) => res.json())
@@ -165,6 +195,11 @@ export default function CheckoutPage() {
                 isDefault: Boolean(a.is_default || a.isDefault),
               }));
               setSavedAddresses(addrs);
+              if (storageKey && typeof window !== "undefined") {
+                try {
+                  localStorage.setItem(storageKey, JSON.stringify(addrs));
+                } catch (_) {}
+              }
               if (addrs.length > 0) {
                 const def = addrs.find((a: any) => a.isDefault) || addrs[0];
                 setSelectedAddressId(def.id);
@@ -188,14 +223,14 @@ export default function CheckoutPage() {
           });
       }
     } else {
-      setMode("guest");
-      setName("");
-      setEmail("");
-      setPhone("");
+      setMode(user && isAdm ? "signin" : "guest");
+      setName(user?.name || "");
+      setEmail(user?.email || "");
+      setPhone(user?.phone || "");
       setSavedAddresses([]);
       setSelectedAddressId("new");
     }
-  }, [user?.email, user?.phone]);
+  }, [user?.id, user?.email, user?.phone]);
 
   const handleSelectSavedAddress = (addr: Address) => {
     setSelectedAddressId(addr.id);
@@ -523,8 +558,15 @@ export default function CheckoutPage() {
 
         // Persist to database for this authenticated customer
         const token = typeof window !== "undefined" ? localStorage.getItem(KEYS.token) : null;
+        const storageKey = getAccountAddressKey(user);
+        if (storageKey && typeof window !== "undefined") {
+          try {
+            const cur = JSON.parse(localStorage.getItem(storageKey) || "[]");
+            localStorage.setItem(storageKey, JSON.stringify([...cur, newAddressItem]));
+          } catch (_) {}
+        }
         if (token) {
-          fetch("/api/auth/addresses", {
+          fetch(apiUrl("/auth/addresses"), {
             method: "POST",
             headers: {
               "Content-Type": "application/json",

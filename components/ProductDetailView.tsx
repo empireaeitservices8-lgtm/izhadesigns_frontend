@@ -24,6 +24,8 @@ import {
   KEYS,
   inr,
   readDeletedProducts,
+  getStoredCart,
+  saveStoredCart,
   useStored,
   type CartItem,
   type WishItem,
@@ -397,8 +399,7 @@ function ProductDetailContent({ product }: { product: Product | AdminProduct }) 
 
     // Immediate direct storage sync so rapid page navigation never loses cart updates
     try {
-      const raw = localStorage.getItem(KEYS.cart);
-      const cur: CartItem[] = raw ? JSON.parse(raw) : [];
+      const cur: CartItem[] = getStoredCart();
       const idx = cur.findIndex(
         (x) => String(x.id) === String(product.id) && x.size === sizeToUse
       );
@@ -415,15 +416,13 @@ function ProductDetailContent({ product }: { product: Product | AdminProduct }) 
           qty,
         });
       }
-      localStorage.setItem(KEYS.cart, JSON.stringify(cur));
-      window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.cart }));
+      saveStoredCart(cur);
     } catch (err: any) {
       if (err?.name === "QuotaExceededError" || err?.code === 22) {
         try {
           localStorage.removeItem(KEYS.adminProducts);
           if (updatedCart.length > 0) {
-            localStorage.setItem(KEYS.cart, JSON.stringify(updatedCart));
-            window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.cart }));
+            saveStoredCart(updatedCart);
           }
         } catch (_) {}
       }

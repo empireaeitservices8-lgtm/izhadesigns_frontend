@@ -385,9 +385,13 @@ export default function AdminDashboardPage() {
   }, [orders, customers]);
 
   const m = useMemo(() => {
-    const totalRevenue = orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-    const totalOrders = orders.length;
-    const collected = orders
+    const validOrders = orders.filter((o) => {
+      const s = (o.status || "").toLowerCase().trim();
+      return s !== "cancelled" && s !== "failed" && s !== "draft" && s !== "abandoned";
+    });
+    const totalRevenue = validOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const totalOrders = validOrders.length;
+    const collected = validOrders
       .filter((o) => o.paymentStatus === "Paid" || o.status === "Delivered")
       .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
     const average = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;

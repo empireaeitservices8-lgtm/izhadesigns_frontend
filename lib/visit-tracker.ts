@@ -1,5 +1,6 @@
 // Call trackEvent() from the CUSTOMER site to record visits and funnel steps.
 // The admin Reports page reads these events.
+import { apiUrl } from "@/lib/api-config";
 
 export const VISIT_EVENTS_KEY = "izha-visit-events";
 
@@ -28,17 +29,51 @@ export type VisitEvent = {
   customerName?: string;
 };
 
-function sessionId(): string {
+function getActiveUserIdentifier(): string {
+  if (typeof window === "undefined") return "guest";
   try {
+    const rawUser = localStorage.getItem("izha_user");
+    if (rawUser) {
+      const u = JSON.parse(rawUser);
+      if (u) {
+        return (u.id || u.email || u.phone || "user").toLowerCase().replace(/[^a-z0-9_-]/g, "_");
+      }
+    }
+  } catch (_) {}
+  return "guest";
+}
+
+export function resetSession(): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem("izha-session-id");
+    sessionStorage.removeItem("izha-session-user");
+  } catch (_) {}
+}
+
+export function sessionId(): string {
+  if (typeof window === "undefined") return "s-unknown";
+  try {
+    const currentUser = getActiveUserIdentifier();
+    const storedUser = sessionStorage.getItem("izha-session-user");
     let id = sessionStorage.getItem("izha-session-id");
-    if (!id) {
-      id = `s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // If user changed (e.g. logged in or logged out), reset session so journeys are never blended
+    if (!id || storedUser !== currentUser) {
+      id = `s-${currentUser}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       sessionStorage.setItem("izha-session-id", id);
+      sessionStorage.setItem("izha-session-user", currentUser);
     }
     return id;
   } catch {
     return "s-unknown";
   }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("izha-account-change", () => {
+    resetSession();
+  });
 }
 
 export function readEvents(): VisitEvent[] {
@@ -93,7 +128,7 @@ export function trackEvent(
   writeEvents(list);
 
   try {
-    fetch("/api/visits", {
+    fetch(apiUrl("/visits"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(event),
