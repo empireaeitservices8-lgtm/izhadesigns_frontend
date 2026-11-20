@@ -729,7 +729,6 @@ export default function CheckoutPage() {
         );
       }
     } catch (err) {
-      console.error("Error saving order to backend:", err);
       setError("An unexpected error occurred while placing your order. Please try again.");
     } finally {
       setIsSubmitting(false);

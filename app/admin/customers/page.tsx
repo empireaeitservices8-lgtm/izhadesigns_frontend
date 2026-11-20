@@ -108,9 +108,7 @@ export default function AdminCustomersPage() {
           localStorage.setItem(KEYS.customers, JSON.stringify(data.customers));
         } catch (_) {}
       }
-    } catch (err) {
-      console.error("Failed to fetch customers:", err);
-    }
+    } catch (err) {}
   }, []);
 
   useEffect(() => {
@@ -142,9 +140,7 @@ export default function AdminCustomersPage() {
         body: JSON.stringify({ active: newStatus === "Active" }),
       });
       window.dispatchEvent(new Event("izha-store-sync"));
-    } catch (err) {
-      console.error("Failed to update status:", err);
-    }
+    } catch (err) {}
   };
 
   /** Runs after the person presses Delete in the alert box. */
@@ -162,9 +158,7 @@ export default function AdminCustomersPage() {
         },
       });
       window.dispatchEvent(new Event("izha-store-sync"));
-    } catch (err) {
-      console.error("Failed to delete customer:", err);
-    }
+    } catch (err) {}
   };
 
   const statsMap = useMemo(() => {

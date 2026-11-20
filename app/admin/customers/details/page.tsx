@@ -248,7 +248,6 @@ function CustomerDetailsInner() {
       if (!res.ok) throw new Error(`Status update failed (${res.status})`);
       window.dispatchEvent(new Event("izha-store-sync"));
     } catch (err) {
-      console.error(err);
       // Server rejected it: put the old status back
       setStatusOverride(previousStatus);
       setCustomers((prev) => {
@@ -274,9 +273,7 @@ function CustomerDetailsInner() {
         },
       });
       window.dispatchEvent(new Event("izha-store-sync"));
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) {}
     router.push("/admin/customers");
   };
 

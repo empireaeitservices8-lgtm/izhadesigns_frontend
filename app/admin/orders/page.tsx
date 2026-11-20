@@ -238,7 +238,6 @@ export default function AdminOrdersPage() {
         },
       });
       const data = await res.json().catch(() => null);
-      console.log("ADMIN ORDERS:", res.status, data);
 
       const list = Array.isArray(data?.orders)
         ? data.orders
@@ -325,7 +324,6 @@ export default function AdminOrdersPage() {
         localStorage.setItem(KEYS.orders, JSON.stringify(mapped));
       } catch (_) { }
     } catch (err) {
-      console.error("Admin orders load failed:", err);
       setLoadError("Could not reach the server.");
     }
   };

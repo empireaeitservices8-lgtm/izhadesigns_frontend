@@ -249,7 +249,6 @@ function TrackOrderContent() {
         }
       }
     } catch (err) {
-      console.error("Track order error:", err);
       setOrders([]);
       setErrorMessage("No orders found matching this mobile number.");
     } finally {
