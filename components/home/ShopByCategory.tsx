@@ -7,6 +7,7 @@ import { Cormorant_Garamond } from "next/font/google";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { CATEGORIES, type Category } from "@/lib/categories";
 import { KEYS, useStored } from "@/lib/izha-store";
+import { apiUrl } from "@/lib/api-config";
 
 const cormorant = Cormorant_Garamond({
   subsets: ["latin"],
@@ -25,14 +26,21 @@ export default function ShopByCategory({ categories: propCategories }: Props) {
   const [storedCategories, setStoredCategories] = useStored<Category[]>(KEYS.categories, CATEGORIES);
 
   useEffect(() => {
-    fetch("/api/content/categories")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.success && Array.isArray(data.value) && data.value.length > 0) {
-          setStoredCategories(data.value);
-        }
-      })
-      .catch(() => {});
+    const loadCategories = () => {
+      fetch(apiUrl("/content/categories"))
+        .then((res) => res.json())
+        .then((data) => {
+          const list = Array.isArray(data?.data) ? data.data : Array.isArray(data?.value) ? data.value : null;
+          if (data?.success && list && list.length > 0) {
+            setStoredCategories(list);
+          }
+        })
+        .catch(() => {});
+    };
+
+    loadCategories();
+    window.addEventListener("izha-store-sync", loadCategories);
+    return () => window.removeEventListener("izha-store-sync", loadCategories);
   }, [setStoredCategories]);
 
   const categories =

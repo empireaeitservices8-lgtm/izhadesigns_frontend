@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { KEYS, useStored } from "@/lib/izha-store";
 import { DEFAULT_HERO_SLIDES, type HeroSlide } from "@/lib/demo-store";
+import { apiUrl } from "@/lib/api-config";
 
 const AUTOPLAY_MS = 5000;
 
@@ -24,14 +25,21 @@ export default function HeroCarousel() {
   const [storedSlides, setStoredSlides] = useStored<HeroSlide[]>(KEYS.heroSlides, DEFAULT_HERO_SLIDES);
 
   useEffect(() => {
-    fetch("/api/content/heroSlides")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.success && Array.isArray(data.value) && data.value.length > 0) {
-          setStoredSlides(data.value);
-        }
-      })
-      .catch(() => {});
+    const loadSlides = () => {
+      fetch(apiUrl("/content/heroSlides"))
+        .then((res) => res.json())
+        .then((data) => {
+          const list = Array.isArray(data?.data) ? data.data : Array.isArray(data?.value) ? data.value : null;
+          if (data?.success && list && list.length > 0) {
+            setStoredSlides(list);
+          }
+        })
+        .catch(() => {});
+    };
+
+    loadSlides();
+    window.addEventListener("izha-store-sync", loadSlides);
+    return () => window.removeEventListener("izha-store-sync", loadSlides);
   }, [setStoredSlides]);
 
   const slides = storedSlides.length > 0 ? storedSlides : DEFAULT_HERO_SLIDES;

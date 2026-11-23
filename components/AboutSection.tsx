@@ -7,6 +7,7 @@ import { Cormorant_Garamond } from "next/font/google";
 import { WhatsAppSvg } from "@/components/WhatsAppFloat";
 import { KEYS, useStored } from "@/lib/izha-store";
 import { DEFAULT_ABOUT, type AboutContent } from "@/lib/demo-store";
+import { apiUrl } from "@/lib/api-config";
 
 const cormorant = Cormorant_Garamond({
   subsets: ["latin"],
@@ -31,14 +32,21 @@ export default function AboutSection() {
   const [storedAbout, setStoredAbout] = useStored<AboutContent>(KEYS.about, DEFAULT_ABOUT);
 
   useEffect(() => {
-    fetch("/api/content/about")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.success && data.value && typeof data.value === "object") {
-          setStoredAbout(data.value);
-        }
-      })
-      .catch(() => {});
+    const loadAbout = () => {
+      fetch(apiUrl("/content/about"))
+        .then((res) => res.json())
+        .then((data) => {
+          const val = data?.data || data?.value;
+          if (data?.success && val && typeof val === "object") {
+            setStoredAbout(val);
+          }
+        })
+        .catch(() => {});
+    };
+
+    loadAbout();
+    window.addEventListener("izha-store-sync", loadAbout);
+    return () => window.removeEventListener("izha-store-sync", loadAbout);
   }, [setStoredAbout]);
 
   const about = storedAbout ?? DEFAULT_ABOUT;

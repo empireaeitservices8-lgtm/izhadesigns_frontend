@@ -22,6 +22,56 @@ import { apiUrl } from "@/lib/api-config";
 
 const CRIMSON = "#B20947";
 
+/**
+ * Client-side canvas image compressor.
+ * Downscales images to reasonable max dimensions and JPEG quality (~60-120KB),
+ * preventing localStorage quota crashes and request body size errors.
+ */
+const compressImageFile = (file: File, maxDim = 1200, quality = 0.82): Promise<string> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (typeof window === "undefined") {
+        resolve(typeof e.target?.result === "string" ? e.target.result : "");
+        return;
+      }
+      const img = new window.Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(typeof e.target?.result === "string" ? e.target.result : "");
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = () => {
+        resolve(typeof e.target?.result === "string" ? e.target.result : "");
+      };
+      if (typeof e.target?.result === "string") {
+        img.src = e.target.result;
+      } else {
+        resolve("");
+      }
+    };
+    reader.onerror = () => resolve("");
+    reader.readAsDataURL(file);
+  });
+};
+
 /* ---------- Layout pieces (same structure as the dashboard) ---------- */
 
 function StatCard({
@@ -101,32 +151,64 @@ export default function AdminHomepagePage() {
   );
   const [savedBanner, setSavedBanner] = useState(false);
 
+  const saveKeyContent = async (key: string, data: any) => {
+    try {
+      const adminToken = typeof window !== "undefined" ? localStorage.getItem("izha_admin_token") : null;
+      const token = adminToken || (typeof window !== "undefined" ? localStorage.getItem(KEYS.token) : null);
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      await fetch(apiUrl(`/content/${key}`), {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ data }),
+      });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: key }));
+      }
+    } catch (_) {}
+  };
+
   const updateSlide = (idx: number, patch: Partial<HeroSlide>) => {
-    setSlides((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+    setSlides((prev) => {
+      const next = prev.map((s, i) => (i === idx ? { ...s, ...patch } : s));
+      return next;
+    });
   };
 
   const addSlide = () => {
-    setSlides((prev) => [
-      ...prev,
-      {
-        id: `slide-${Date.now()}`,
-        image: "/images/hero5.png",
-        imageAlt: "New Izha Blooms banner",
-        imagePosition: "right center",
-        eyebrow: "New Collection",
-        title: "Elegance in Every Thread",
-        text: "Crafted in soft pastel hues for every occasion.",
-        cta: "Explore Now",
-        href: "/collections",
-        textColor: "#3A1426",
-        accentColor: "#8F3057",
-      },
-    ]);
+    setSlides((prev) => {
+      const next = [
+        ...prev,
+        {
+          id: `slide-${Date.now()}`,
+          image: "/images/hero5.png",
+          imageAlt: "New Izha Blooms banner",
+          imagePosition: "right center",
+          eyebrow: "New Collection",
+          title: "Elegance in Every Thread",
+          text: "Crafted in soft pastel hues for every occasion.",
+          cta: "Explore Now",
+          href: "/collections",
+          textColor: "#3A1426",
+          accentColor: "#8F3057",
+        },
+      ];
+      saveKeyContent("heroSlides", next);
+      return next;
+    });
   };
 
   const removeSlide = (idx: number) => {
     if (slides.length <= 1) return;
-    setSlides((prev) => prev.filter((_, i) => i !== idx));
+    setSlides((prev) => {
+      const next = prev.filter((_, i) => i !== idx);
+      saveKeyContent("heroSlides", next);
+      return next;
+    });
   };
 
   const updateCategory = (idx: number, patch: Partial<Category>) => {
@@ -134,44 +216,54 @@ export default function AdminHomepagePage() {
   };
 
   const addCategory = () => {
-    setCategories((prev) => [
-      ...prev,
-      {
-        id: `cat-${Date.now()}`,
-        name: "New Category",
-        href: "/collections/kurtas",
-        image: "/images/kurtas1.jpg",
-      },
-    ]);
+    setCategories((prev) => {
+      const next = [
+        ...prev,
+        {
+          id: `cat-${Date.now()}`,
+          name: "New Category",
+          href: "/collections/kurtas",
+          image: "/images/kurtas1.jpg",
+        },
+      ];
+      saveKeyContent("categories", next);
+      return next;
+    });
   };
 
   const removeCategory = (idx: number) => {
     if (categories.length <= 1) return;
-    setCategories((prev) => prev.filter((_, i) => i !== idx));
+    setCategories((prev) => {
+      const next = prev.filter((_, i) => i !== idx);
+      saveKeyContent("categories", next);
+      return next;
+    });
   };
 
-  const uploadToSlide = (idx: number, e: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadToSlide = async (idx: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        updateSlide(idx, { image: reader.result as string });
-      }
-    };
-    reader.readAsDataURL(file);
+    const compressed = await compressImageFile(file, 1600, 0.82);
+    if (compressed) {
+      setSlides((prev) => {
+        const next = prev.map((s, i) => (i === idx ? { ...s, image: compressed } : s));
+        saveKeyContent("heroSlides", next);
+        return next;
+      });
+    }
   };
 
-  const uploadToCategory = (idx: number, e: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadToCategory = async (idx: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        updateCategory(idx, { image: reader.result as string });
-      }
-    };
-    reader.readAsDataURL(file);
+    const compressed = await compressImageFile(file, 800, 0.82);
+    if (compressed) {
+      setCategories((prev) => {
+        const next = prev.map((c, i) => (i === idx ? { ...c, image: compressed } : c));
+        saveKeyContent("categories", next);
+        return next;
+      });
+    }
   };
 
   const updateInstagramPost = (idx: number, patch: Partial<InstagramPost>) => {
@@ -181,60 +273,71 @@ export default function AdminHomepagePage() {
   };
 
   const addInstagramPost = () => {
-    setInstagramPosts((prev) => [
-      ...prev,
-      {
-        id: `ig-${Date.now()}`,
-        image: "/images/inst6.jpg",
-        alt: "Izha Blooms showcase look",
-        postUrl: "https://www.instagram.com/izhablooms/",
-      },
-    ]);
+    setInstagramPosts((prev) => {
+      const next = [
+        ...prev,
+        {
+          id: `ig-${Date.now()}`,
+          image: "/images/inst6.jpg",
+          alt: "Izha Blooms showcase look",
+          postUrl: "https://www.instagram.com/izhablooms/",
+        },
+      ];
+      saveKeyContent("instagramPosts", next);
+      return next;
+    });
   };
 
   const removeInstagramPost = (idx: number) => {
     if (instagramPosts.length <= 1) return;
-    setInstagramPosts((prev) => prev.filter((_, i) => i !== idx));
+    setInstagramPosts((prev) => {
+      const next = prev.filter((_, i) => i !== idx);
+      saveKeyContent("instagramPosts", next);
+      return next;
+    });
   };
 
-  const uploadToInstagramPost = (idx: number, e: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadToInstagramPost = async (idx: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        updateInstagramPost(idx, { image: reader.result as string });
-      }
-    };
-    reader.readAsDataURL(file);
+    const compressed = await compressImageFile(file, 800, 0.82);
+    if (compressed) {
+      setInstagramPosts((prev) => {
+        const next = prev.map((post, i) => (i === idx ? { ...post, image: compressed } : post));
+        saveKeyContent("instagramPosts", next);
+        return next;
+      });
+    }
   };
 
   const updateAbout = (patch: Partial<AboutContent>) => {
     setAbout((prev) => ({ ...(prev ?? DEFAULT_ABOUT), ...patch }));
   };
 
-  const uploadToAboutMain = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadToAboutMain = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        updateAbout({ mainImage: reader.result as string });
-      }
-    };
-    reader.readAsDataURL(file);
+    const compressed = await compressImageFile(file, 1200, 0.82);
+    if (compressed) {
+      setAbout((prev) => {
+        const next = { ...(prev ?? DEFAULT_ABOUT), mainImage: compressed };
+        saveKeyContent("about", next);
+        return next;
+      });
+    }
   };
 
-  const uploadToAboutSmall = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadToAboutSmall = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        updateAbout({ smallImage: reader.result as string });
-      }
-    };
-    reader.readAsDataURL(file);
+    const compressed = await compressImageFile(file, 800, 0.82);
+    if (compressed) {
+      setAbout((prev) => {
+        const next = { ...(prev ?? DEFAULT_ABOUT), smallImage: compressed };
+        saveKeyContent("about", next);
+        return next;
+      });
+    }
   };
 
   const updateParagraph = (idx: number, val: string) => {
@@ -280,56 +383,78 @@ export default function AdminHomepagePage() {
   useEffect(() => {
     fetch(apiUrl("/content/heroSlides"))
       .then((r) => r.json())
-      .then((d) => d?.data && Array.isArray(d.data) && d.data.length > 0 && setSlides(d.data))
+      .then((d) => {
+        const val = Array.isArray(d?.data) ? d.data : Array.isArray(d?.value) ? d.value : null;
+        if (d?.success && val && val.length > 0) setSlides(val);
+      })
       .catch(() => {});
     fetch(apiUrl("/content/categories"))
       .then((r) => r.json())
-      .then((d) => d?.data && Array.isArray(d.data) && d.data.length > 0 && setCategories(d.data))
+      .then((d) => {
+        const val = Array.isArray(d?.data) ? d.data : Array.isArray(d?.value) ? d.value : null;
+        if (d?.success && val && val.length > 0) setCategories(val);
+      })
       .catch(() => {});
     fetch(apiUrl("/content/about"))
       .then((r) => r.json())
-      .then((d) => d?.data && setAbout(d.data))
+      .then((d) => {
+        const val = d?.data || d?.value;
+        if (d?.success && val && typeof val === "object") setAbout(val);
+      })
       .catch(() => {});
     fetch(apiUrl("/content/instagramPosts"))
       .then((r) => r.json())
-      .then((d) => d?.data && Array.isArray(d.data) && d.data.length > 0 && setInstagramPosts(d.data))
+      .then((d) => {
+        const val = Array.isArray(d?.data) ? d.data : Array.isArray(d?.value) ? d.value : null;
+        if (d?.success && val && val.length > 0) setInstagramPosts(val);
+      })
       .catch(() => {});
   }, [setSlides, setCategories, setAbout, setInstagramPosts]);
 
-  const triggerSaved = () => {
+  const triggerSaved = async () => {
     setSavedBanner(true);
-    setTimeout(() => setSavedBanner(false), 2000);
+    setTimeout(() => setSavedBanner(false), 2500);
 
     const adminToken = typeof window !== "undefined" ? localStorage.getItem("izha_admin_token") : null;
     const token = adminToken || (typeof window !== "undefined" ? localStorage.getItem(KEYS.token) : null);
-    const headers = {
+    const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
 
-    fetch(apiUrl("/content/heroSlides"), {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ data: slides }),
-    }).catch(() => {});
+    try {
+      await Promise.all([
+        fetch(apiUrl("/content/heroSlides"), {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({ data: slides }),
+        }),
+        fetch(apiUrl("/content/categories"), {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({ data: categories }),
+        }),
+        fetch(apiUrl("/content/about"), {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({ data: about }),
+        }),
+        fetch(apiUrl("/content/instagramPosts"), {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({ data: instagramPosts }),
+        }),
+      ]);
 
-    fetch(apiUrl("/content/categories"), {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ data: categories }),
-    }).catch(() => {});
-
-    fetch(apiUrl("/content/about"), {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ data: about }),
-    }).catch(() => {});
-
-    fetch(apiUrl("/content/instagramPosts"), {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ data: instagramPosts }),
-    }).catch(() => {});
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.heroSlides }));
+        window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.categories }));
+        window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.about }));
+        window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.instagramPosts }));
+      }
+    } catch (_) {}
   };
 
   const resetDefaults = () => {

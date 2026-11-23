@@ -4,12 +4,13 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { KEYS, useStored } from "@/lib/izha-store";
 import { DEFAULT_INSTAGRAM_POSTS, type InstagramPost } from "@/lib/demo-store";
+import { apiUrl } from "@/lib/api-config";
 
 /* ---- Easy settings ---- */
 
-const INSTAGRAM_HANDLE = "@izhablooms";
+const INSTAGRAM_HANDLE = "@izha_blooms";
 
-const INSTAGRAM_PROFILE_URL = "https://www.instagram.com/izha_blooms?srtk=dnZlcGcxN2llZGV1";
+const INSTAGRAM_PROFILE_URL = "https://www.instagram.com/izha_blooms?dlrf=MTY3cWtxbzRubTM5eg==";
 
 /* Tilt and height of each card (same order as GALLERY).
    Change the rotate-* and lg:mt-* values to rearrange the collage. */
@@ -138,14 +139,21 @@ export default function InstagramGallery() {
   const [gallery, setGallery] = useStored<InstagramPost[]>(KEYS.instagramPosts, DEFAULT_INSTAGRAM_POSTS);
 
   useEffect(() => {
-    fetch("/api/content/instagramPosts")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.success && Array.isArray(data.value) && data.value.length > 0) {
-          setGallery(data.value);
-        }
-      })
-      .catch(() => {});
+    const loadGallery = () => {
+      fetch(apiUrl("/content/instagramPosts"))
+        .then((res) => res.json())
+        .then((data) => {
+          const list = Array.isArray(data?.data) ? data.data : Array.isArray(data?.value) ? data.value : null;
+          if (data?.success && list && list.length > 0) {
+            setGallery(list);
+          }
+        })
+        .catch(() => {});
+    };
+
+    loadGallery();
+    window.addEventListener("izha-store-sync", loadGallery);
+    return () => window.removeEventListener("izha-store-sync", loadGallery);
   }, [setGallery]);
 
   return (
