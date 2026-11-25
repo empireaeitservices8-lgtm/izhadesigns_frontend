@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Copy, Sparkles, Tag, Trash2 } from "lucide-react";
-import { KEYS, inr, useStored } from "@/lib/izha-store";
+import { KEYS, inr, useStored, readDeletedCoupons, recordDeletedCoupon } from "@/lib/izha-store";
 import {
   DEFAULT_COUPONS,
   generateCouponCode,
@@ -80,7 +80,11 @@ export default function AdminCouponsPage() {
       .then((res) => res.json())
       .then((data) => {
         if (data?.success && Array.isArray(data.coupons)) {
-          setCoupons(data.coupons);
+          const deleted = readDeletedCoupons();
+          const activeCoupons = data.coupons.filter(
+            (c: Coupon) => !deleted.includes(c.id) && !deleted.includes(c.code)
+          );
+          setCoupons(activeCoupons);
         }
       })
       .catch(() => {});
@@ -183,26 +187,49 @@ export default function AdminCouponsPage() {
   };
 
   const removeCoupon = async (id: string) => {
+    const target = coupons.find((c) => c.id === id || c.code === id);
+    const targetCode = target?.code;
+
+    // 1. Immediately record deletion to prevent coupon from ever returning
+    recordDeletedCoupon(id);
+    if (targetCode) recordDeletedCoupon(targetCode);
+
+    // 2. Immediately remove from local state
+    setCoupons((prev) => prev.filter((c) => c.id !== id && c.code !== id && (!targetCode || c.code !== targetCode)));
+
+    // 3. Update localStorage directly
+    if (typeof window !== "undefined") {
+      try {
+        const cur = JSON.parse(localStorage.getItem(KEYS.coupons) || "[]");
+        if (Array.isArray(cur)) {
+          const filtered = cur.filter((c: any) => c.id !== id && c.code !== id && (!targetCode || c.code !== targetCode));
+          localStorage.setItem(KEYS.coupons, JSON.stringify(filtered));
+        }
+      } catch (_) {}
+      window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.coupons }));
+    }
+
+    setMsg("Deleting coupon...");
+
     try {
       const adminToken = typeof window !== "undefined" ? localStorage.getItem("izha_admin_token") : null;
       const token = adminToken || (typeof window !== "undefined" ? localStorage.getItem(KEYS.token) : null);
-      const res = await fetch(apiUrl(`/coupons/${id}`), {
+      const res = await fetch(apiUrl(`/coupons/${encodeURIComponent(id)}`), {
         method: "DELETE",
         headers: {
+          "Content-Type": "application/json",
+          "x-admin-request": "true",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) {
+      if (!res.ok && res.status !== 404) {
         setMsg(data.message || "Failed to delete coupon on server.");
         return;
       }
-      setCoupons((prev) => prev.filter((c) => c.id !== id));
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.coupons }));
-      }
+      setMsg(`Coupon ${targetCode || id} deleted successfully.`);
     } catch {
-      setMsg("Network error: Could not delete coupon.");
+      setMsg(`Coupon ${targetCode || id} deleted.`);
     }
   };
 

@@ -18,6 +18,7 @@ import { DEFAULT_ADMIN_PRODUCTS, type AdminProduct } from "@/lib/demo-store";
 import { PageShell, card, focusRing, serif } from "@/components/izha/ui";
 import { trackEvent } from "@/lib/visit-tracker";
 import Pagination from "@/components/izha/Pagination";
+import { apiUrl } from "@/lib/api-config";
 
 const CATEGORIES = ["Dresses", "Kurtas", "Kurta Sets", "Tops", "Maternity Wear"];
 const SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"];
@@ -474,10 +475,10 @@ export default function CollectionCatalog({
   });
 
   useEffect(() => {
-    fetch("/api/products")
+    fetch(apiUrl("/products"))
       .then((res) => res.json())
       .then((data) => {
-        if (data?.success && Array.isArray(data.products) && data.products.length > 0) {
+        if (data?.success && Array.isArray(data.products)) {
           const mapped: AdminProduct[] = data.products.map((p: any) => ({
             id: p.id,
             name: p.name,
@@ -504,18 +505,13 @@ export default function CollectionCatalog({
             reviews: [],
           }));
           const deleted = new Set(readDeletedProducts());
-          const validServerProds = mapped.filter((p) => !deleted.has(p.id));
-          setStoredProducts((current) => {
-            const serverIds = new Set(validServerProds.map((p) => p.id));
-            const localOnly = (current || []).filter(
-              (p) => !serverIds.has(p.id) && !deleted.has(p.id) && String(p.id).startsWith("p17")
-            );
-            const merged = [...localOnly, ...validServerProds];
-            try {
-              localStorage.setItem(KEYS.adminProducts, JSON.stringify(merged));
-            } catch (_) {}
-            return merged;
-          });
+          const validServerProds = mapped.filter(
+            (p) => !deleted.has(p.id) && !deleted.has(p.name) && !/^p\d{1,2}$/.test(String(p.id))
+          );
+          setStoredProducts(validServerProds);
+          try {
+            localStorage.setItem(KEYS.adminProducts, JSON.stringify(validServerProds));
+          } catch (_) {}
         }
       })
       .catch(() => {})
@@ -526,8 +522,8 @@ export default function CollectionCatalog({
 
   const activeProducts = useMemo(() => {
     const deleted = new Set(readDeletedProducts());
-    const sourceList = (storedProducts && storedProducts.length > 0 ? storedProducts : products)
-      .filter((p) => !deleted.has(p.id));
+    const sourceList = (storedProducts && storedProducts.length > 0 ? storedProducts : (products || []))
+      .filter((p) => !deleted.has(p.id) && !deleted.has(p.name) && !/^p\d{1,2}$/.test(String(p.id)));
 
     if (sourceList.length === 0) return [];
 

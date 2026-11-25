@@ -71,6 +71,28 @@ export const KEYS = {
 export const SIZES = ["XS", "S", "M", "L", "XL"];
 
 export const DELETED_PRODUCTS_KEY = "izha_deleted_products";
+export const DELETED_COUPONS_KEY = "izha_deleted_coupons";
+
+export function readDeletedCoupons(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(DELETED_COUPONS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function recordDeletedCoupon(idOrCode: string) {
+  if (typeof window === "undefined") return;
+  const current = readDeletedCoupons();
+  const next = current.includes(idOrCode) ? current : [...current, idOrCode];
+  try {
+    localStorage.setItem(DELETED_COUPONS_KEY, JSON.stringify(next));
+  } catch {}
+  window.dispatchEvent(new CustomEvent(SYNC_EVENT, { detail: DELETED_COUPONS_KEY }));
+}
 
 /** Resolves an account-specific storage key for the shopping cart */
 export function getAccountCartKey(): string {
@@ -193,6 +215,14 @@ export function useStored<T>(key: string, initial: T) {
         return parsed.filter(
           (p: any) => p && p.id && !deleted.includes(String(p.id)) && !/^p\d{1,2}$/.test(String(p.id))
         ) as unknown as T;
+      }
+      if (key === KEYS.coupons && Array.isArray(parsed)) {
+        const deletedCoupons = readDeletedCoupons();
+        if (deletedCoupons.length > 0) {
+          return parsed.filter(
+            (c: any) => c && !deletedCoupons.includes(String(c.id)) && !deletedCoupons.includes(String(c.code))
+          ) as unknown as T;
+        }
       }
       return (parsed !== undefined ? parsed : initial) as T;
     } catch {

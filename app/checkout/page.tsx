@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import Script from "next/script";
 import {
   CheckCircle2,
   CreditCard,
@@ -63,7 +64,28 @@ import {
 } from "@/components/izha/ui";
 
 type CheckoutMode = "guest" | "signin" | "register";
-type PaymentMethod = "UPI" | "Cash on Delivery";
+type PaymentMethod = "Razorpay" | "UPI" | "Cash on Delivery";
+
+function loadRazorpayScript(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined") return resolve(false);
+    if ((window as any).Razorpay) return resolve(true);
+
+    const existingScript = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
+    if (existingScript) {
+      existingScript.addEventListener("load", () => resolve(true));
+      existingScript.addEventListener("error", () => resolve(false));
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
 
 export default function CheckoutPage() {
   const [cart, setCart, ready] = useStored<CartItem[]>(KEYS.cart, []);
@@ -282,7 +304,7 @@ export default function CheckoutPage() {
     null
   );
 
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("UPI");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Razorpay");
   const [error, setError] = useState("");
   const [placedOrder, setPlacedOrder] = useState<DemoOrder | null>(null);
 
@@ -629,108 +651,232 @@ export default function CheckoutPage() {
         }
       }
 
-      const newOrder: DemoOrder = {
-        id: orderNumber,
-        createdAt: new Date().toISOString().replace("T", " ").slice(0, 16),
-        customerId,
-        customerName: name.trim(),
-        customerPhone: phone.trim(),
-        customerEmail:
-          email.trim() ||
-          (mode === "guest" ? "guest@izhablooms.in" : `${phone.trim()}@izhablooms.in`),
-        address: address.trim(),
-        city: city.trim(),
-        state: stateName.trim() || activeDeliveryInfo.regionName,
-        pincode: pincode.trim(),
-        items: cart.map((c) => ({
-          id: c.id,
-          name: c.name,
-          image: c.image,
-          size: c.size,
-          qty: c.qty,
-          price: c.price,
-        })),
-        subtotal,
-        discount: totalDiscount,
-        couponCode: appliedCoupon?.code,
-        shipping: shippingCost,
-        total: finalPayable,
-        paymentMethod,
-        paymentStatus: paymentMethod === "Cash on Delivery" ? "COD Pending" : "Paid",
-        paymentRef: `${paymentMethod.slice(0, 3).toUpperCase()}-${Math.floor(
-          100000 + Math.random() * 899999
-        )}`,
-        status: "Processing",
-        source: "Direct",
-      };
-
-      // Persist order to TiDB Cloud backend with transactional inventory verification & deduction
-      const res = await fetch("/api/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const persistOrderRecord = async (payInfo: {
+        paymentMethod: "UPI" | "Card" | "NetBanking" | "Cash on Delivery" | "Razorpay";
+        paymentStatus: "Paid" | "COD Pending";
+        paymentRef: string;
+      }) => {
+        const newOrder: DemoOrder = {
+          id: orderNumber,
+          createdAt: new Date().toISOString().replace("T", " ").slice(0, 16),
+          customerId,
           customerName: name.trim(),
+          customerPhone: phone.trim(),
           customerEmail:
             email.trim() ||
             (mode === "guest" ? "guest@izhablooms.in" : `${phone.trim()}@izhablooms.in`),
-          customerPhone: phone.trim(),
-          shippingAddress: {
-            name: name.trim(),
-            phone: phone.trim(),
-            line: address.trim(),
-            city: city.trim(),
-            state: stateName.trim() || activeDeliveryInfo.regionName,
-            pincode: pincode.trim(),
-          },
-          items: newOrder.items,
-          subtotal: newOrder.subtotal,
-          discount: newOrder.discount,
-          shippingFee: newOrder.shipping,
-          total: newOrder.total,
-          paymentMethod: newOrder.paymentMethod,
-          couponCode: appliedCoupon?.code || null,
-        }),
-      });
+          address: address.trim(),
+          city: city.trim(),
+          state: stateName.trim() || activeDeliveryInfo.regionName,
+          pincode: pincode.trim(),
+          items: cart.map((c) => ({
+            id: c.id,
+            name: c.name,
+            image: c.image,
+            size: c.size,
+            qty: c.qty,
+            price: c.price,
+          })),
+          subtotal,
+          discount: totalDiscount,
+          couponCode: appliedCoupon?.code,
+          shipping: shippingCost,
+          total: finalPayable,
+          paymentMethod: payInfo.paymentMethod,
+          paymentStatus: payInfo.paymentStatus,
+          paymentRef: payInfo.paymentRef,
+          status: "Processing",
+          source: "Direct",
+        };
 
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) {
-        setError(data.message || "Failed to place order. Please check stock availability.");
-        return;
-      }
+        // Persist order to TiDB Cloud backend with transactional inventory verification & deduction
+        const res = await fetch(apiUrl("/orders"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customerName: name.trim(),
+            customerEmail:
+              email.trim() ||
+              (mode === "guest" ? "guest@izhablooms.in" : `${phone.trim()}@izhablooms.in`),
+            customerPhone: phone.trim(),
+            shippingAddress: {
+              name: name.trim(),
+              phone: phone.trim(),
+              line: address.trim(),
+              city: city.trim(),
+              state: stateName.trim() || activeDeliveryInfo.regionName,
+              pincode: pincode.trim(),
+            },
+            items: newOrder.items,
+            subtotal: newOrder.subtotal,
+            discount: newOrder.discount,
+            shippingFee: newOrder.shipping,
+            total: newOrder.total,
+            paymentMethod: newOrder.paymentMethod,
+            paymentStatus: newOrder.paymentStatus,
+            paymentRef: newOrder.paymentRef,
+            couponCode: appliedCoupon?.code || null,
+          }),
+        });
 
-      // Sync updated stock from server immediately
-      if (Array.isArray(data.updatedProducts) && data.updatedProducts.length > 0) {
-        setAdminProducts(data.updatedProducts);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          setError(data.message || "Failed to place order. Please check stock availability.");
+          setIsSubmitting(false);
+          return;
+        }
+
+        // Sync updated stock from server immediately
+        if (Array.isArray(data.updatedProducts) && data.updatedProducts.length > 0) {
+          setAdminProducts(data.updatedProducts);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("izha-store-sync", { detail: KEYS.adminProducts })
+            );
+            window.dispatchEvent(
+              new CustomEvent("izha-store-sync", { detail: KEYS.orders })
+            );
+          }
+        }
+
+        const placedRecord = data.order
+          ? {
+              ...newOrder,
+              id: data.order.orderNumber || data.order.id,
+              total: data.order.total !== undefined ? Number(data.order.total) : newOrder.total,
+            }
+          : newOrder;
+
+        setOrders((prev) => [placedRecord, ...prev]);
+        setCart([]);
+        setPlacedOrder(placedRecord);
+        trackEvent("order_placed", { customerName: name.trim() });
         if (typeof window !== "undefined") {
-          window.dispatchEvent(
-            new CustomEvent("izha-store-sync", { detail: KEYS.adminProducts })
-          );
           window.dispatchEvent(
             new CustomEvent("izha-store-sync", { detail: KEYS.orders })
           );
         }
+        setIsSubmitting(false);
+      };
+
+      if (paymentMethod === "Cash on Delivery") {
+        await persistOrderRecord({
+          paymentMethod: "Cash on Delivery",
+          paymentStatus: "COD Pending",
+          paymentRef: `COD-${Math.floor(100000 + Math.random() * 899999)}`,
+        });
+        return;
       }
 
-      const placedRecord = data.order
-        ? {
-            ...newOrder,
-            id: data.order.orderNumber || data.order.id,
-            total: data.order.total !== undefined ? Number(data.order.total) : newOrder.total,
+      // Razorpay Standard Web Checkout
+      const scriptLoaded = await loadRazorpayScript();
+      if (!scriptLoaded) {
+        setIsSubmitting(false);
+        return setError("Failed to load Razorpay payment gateway. Please check your internet connection.");
+      }
+
+      // Minimum amount is 100 paise (₹1.00)
+      const amountInPaise = Math.max(100, Math.round(finalPayable * 100));
+
+      // Step 1: Create Order on backend
+      const createRes = await fetch(apiUrl("/create-order"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: amountInPaise,
+          currency: "INR",
+          receipt: `rcpt_${orderNumber}`,
+          notes: {
+            orderNumber,
+            customerName: name.trim(),
+            customerPhone: phone.trim(),
+          },
+        }),
+      });
+
+      const createData = await createRes.json().catch(() => ({}));
+      if (!createRes.ok || !createData.success || !createData.order_id) {
+        setIsSubmitting(false);
+        return setError(createData.message || "Failed to create payment order. Please try again.");
+      }
+
+      const razorpayKey =
+        process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_U4NeMGhsTUIgu7";
+
+      // Step 2: Open Razorpay checkout modal with order_id
+      const options = {
+        key: razorpayKey,
+        amount: createData.amount,
+        currency: createData.currency || "INR",
+        name: "Izha Blooms",
+        description: `Order ${orderNumber}`,
+        order_id: createData.order_id,
+        prefill: {
+          name: name.trim(),
+          email: email.trim() || undefined,
+          contact: phone.trim(),
+        },
+        notes: {
+          orderNumber,
+          address: address.trim(),
+          pincode: pincode.trim(),
+        },
+        theme: {
+          color: "#B20947",
+        },
+        modal: {
+          ondismiss: function () {
+            setIsSubmitting(false);
+            setError("Payment was cancelled. You can try again or choose Cash on Delivery.");
+          },
+        },
+        handler: async function (paymentResponse: any) {
+          try {
+            // Step 3: Verify payment signature on backend
+            const verifyRes = await fetch(apiUrl("/verify-payment"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                razorpay_order_id: paymentResponse.razorpay_order_id,
+                razorpay_payment_id: paymentResponse.razorpay_payment_id,
+                razorpay_signature: paymentResponse.razorpay_signature,
+              }),
+            });
+
+            const verifyData = await verifyRes.json().catch(() => ({}));
+            if (!verifyRes.ok || !verifyData.success || !verifyData.verified) {
+              setIsSubmitting(false);
+              return setError(
+                verifyData.message || "Payment verification failed. Please contact support."
+              );
+            }
+
+            // Persist order with verified Razorpay payment details
+            await persistOrderRecord({
+              paymentMethod: "Razorpay",
+              paymentStatus: "Paid",
+              paymentRef: paymentResponse.razorpay_payment_id,
+            });
+          } catch (err: any) {
+            setIsSubmitting(false);
+            setError(err?.message || "An error occurred while confirming your payment.");
           }
-        : newOrder;
+        },
+      };
 
-      setOrders((prev) => [placedRecord, ...prev]);
-      setCart([]);
-      setPlacedOrder(placedRecord);
-      trackEvent("order_placed", { customerName: name.trim() });
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("izha-store-sync", { detail: KEYS.orders })
-        );
-      }
+      const razorpayInstance = new (window as any).Razorpay(options);
+      razorpayInstance.on("payment.failed", function (response: any) {
+        setIsSubmitting(false);
+        const failureReason =
+          response?.error?.description ||
+          response?.error?.reason ||
+          "Payment was declined. Please try again or choose Cash on Delivery.";
+        setError(`Payment Failed: ${failureReason}`);
+      });
+
+      razorpayInstance.open();
     } catch (err) {
       setError("An unexpected error occurred while placing your order. Please try again.");
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -793,6 +939,7 @@ export default function CheckoutPage() {
 
   return (
     <PageShell>
+      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
       <PageTitle
         title="Checkout"
         sub="Complete your order as a guest, sign in to your account, or join the IZHA Circle."
@@ -1302,13 +1449,18 @@ export default function CheckoutPage() {
                 Step 3 · Payment Method
               </p>
               <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
-                {(["UPI", "Cash on Delivery"] as const).map((method) => {
-                  const active = paymentMethod === method;
+                {[
+                  { id: "Razorpay" as const, label: "Razorpay (Cards, UPI, NetBanking)" },
+                  { id: "Cash on Delivery" as const, label: "Cash on Delivery" },
+                ].map((method) => {
+                  const active =
+                    paymentMethod === method.id ||
+                    (method.id === "Razorpay" && (paymentMethod as string) === "UPI");
                   return (
                     <button
-                      key={method}
+                      key={method.id}
                       type="button"
-                      onClick={() => setPaymentMethod(method)}
+                      onClick={() => setPaymentMethod(method.id)}
                       className={`flex items-center gap-2.5 rounded-xl border p-3.5 text-left text-[14px] font-medium transition-colors ${focusRing} ${
                         active
                           ? "border-[#B20947] bg-[#FFF5F7] text-[#B20947]"
@@ -1316,7 +1468,7 @@ export default function CheckoutPage() {
                       }`}
                     >
                       <CreditCard size={17} className="shrink-0" />
-                      {method}
+                      {method.label}
                     </button>
                   );
                 })}
@@ -1544,7 +1696,11 @@ export default function CheckoutPage() {
                       onClick={handlePlaceOrder}
                       className={`${solidBtn} mt-5 w-full disabled:opacity-50`}
                     >
-                      {isSubmitting ? "Placing Order..." : `Place Order · ${inr(finalPayable)}`}
+                      {isSubmitting
+                        ? "Processing..."
+                        : paymentMethod === "Cash on Delivery"
+                        ? `Place Order (COD) · ${inr(finalPayable)}`
+                        : `Pay with Razorpay · ${inr(finalPayable)}`}
                     </button>
                     {error && (
                       <AlertBox

@@ -275,8 +275,8 @@ export type DemoOrder = {
   couponCode?: string;
   shipping: number;
   total: number;
-  paymentMethod: "UPI" | "Card" | "NetBanking" | "Cash on Delivery";
-  paymentStatus: "Paid" | "COD Pending";
+  paymentMethod: "UPI" | "Card" | "NetBanking" | "Cash on Delivery" | "Razorpay" | string;
+  paymentStatus: "Paid" | "COD Pending" | "Pending" | string;
   paymentRef: string;
   status: OrderStatus;
   source: TrafficSource;

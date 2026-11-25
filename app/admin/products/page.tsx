@@ -24,6 +24,7 @@ import {
   serif,
   solidBtn,
 } from "@/components/izha/ui";
+import { apiUrl } from "@/lib/api-config";
 
 const CRIMSON = "#B20947";
 const LOW_STOCK = 5;
@@ -58,9 +59,12 @@ async function deleteProductOnServer(id: string): Promise<boolean> {
     const token = typeof window !== "undefined"
       ? (localStorage.getItem("izha_admin_token") || localStorage.getItem(KEYS.token))
       : null;
-    const res = await fetch(`/api/products/${encodeURIComponent(id)}`, {
+    const res = await fetch(apiUrl(`/products/${encodeURIComponent(id)}`), {
       method: "DELETE",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: {
+        "x-admin-request": "true",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
     });
     return res.ok;
   } catch {
@@ -218,7 +222,7 @@ export default function AdminProductsPage() {
   const [deleteTarget, setDeleteTarget] = useState<AdminProduct | null>(null);
 
   useEffect(() => {
-    fetch("/api/products")
+    fetch(apiUrl("/products"))
       .then((res) => res.json())
       .then((data) => {
         if (data?.success && Array.isArray(data.products) && data.products.length > 0) {
@@ -587,7 +591,7 @@ export default function AdminProductsPage() {
           newDays: durationDays,
         };
 
-        const res = await fetch(`/api/products/${encodeURIComponent(form.id)}`, {
+        const res = await fetch(apiUrl(`/products/${encodeURIComponent(form.id)}`), {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
@@ -650,7 +654,7 @@ export default function AdminProductsPage() {
           reviews: [],
         };
 
-        const res = await fetch("/api/products", {
+        const res = await fetch(apiUrl("/products"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -719,7 +723,7 @@ export default function AdminProductsPage() {
 
     const adminToken = typeof window !== "undefined" ? localStorage.getItem("izha_admin_token") : null;
     const token = adminToken || (typeof window !== "undefined" ? localStorage.getItem(KEYS.token) : null);
-    fetch(`/api/products/${encodeURIComponent(id)}`, {
+    fetch(apiUrl(`/products/${encodeURIComponent(id)}`), {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -731,16 +735,20 @@ export default function AdminProductsPage() {
 
   const deleteProduct = (id: string) => {
     const target = products.find((p) => p.id === id);
+    const targetName = target?.name;
 
     // Remember the deletion first. It is never removed from this list,
     // so the product stays deleted after a refresh.
     const current = readDeletedProducts();
-    const nextIds = current.includes(id) ? current : [...current, id];
+    let nextIds = current.includes(id) ? current : [...current, id];
+    if (targetName && !nextIds.includes(targetName)) {
+      nextIds = [...nextIds, targetName];
+    }
     writeDeletedProducts(nextIds);
     setDeletedIds(nextIds);
 
     setProducts((prev) => {
-      const next = prev.filter((p) => p.id !== id);
+      const next = prev.filter((p) => p.id !== id && (!targetName || p.name !== targetName));
       try {
         localStorage.setItem(KEYS.adminProducts, JSON.stringify(next));
         window.dispatchEvent(new CustomEvent("izha-store-sync", { detail: KEYS.adminProducts }));

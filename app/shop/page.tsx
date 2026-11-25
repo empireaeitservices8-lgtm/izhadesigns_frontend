@@ -5,7 +5,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { Check, ChevronDown, Heart, ListFilter, ShoppingBag, SlidersHorizontal, X } from "lucide-react";
 import { KEYS, useStored, readDeletedProducts, type WishItem } from "@/lib/izha-store";
-import { PRODUCTS, type Product, isProductNew } from "@/lib/products";
+import { PRODUCTS, type Product, isProductNew, getStoredProducts } from "@/lib/products";
+import { apiUrl } from "@/lib/api-config";
 import { DEFAULT_ADMIN_PRODUCTS, type AdminProduct } from "@/lib/demo-store";
 import { PageShell, card, focusRing, serif } from "@/components/izha/ui";
 import Pagination from "@/components/izha/Pagination";
@@ -349,10 +350,10 @@ export default function ShopPage() {
   const [newTagDuration] = useStored<number>(KEYS.newTagDurationDays, 30);
 
   useEffect(() => {
-    fetch("/api/products")
+    fetch(apiUrl("/products"))
       .then((res) => res.json())
       .then((data) => {
-        if (data?.success && Array.isArray(data.products) && data.products.length > 0) {
+        if (data?.success && Array.isArray(data.products)) {
           const mapped: AdminProduct[] = data.products.map((p: any) => ({
             id: p.id,
             name: p.name,
@@ -379,18 +380,13 @@ export default function ShopPage() {
             reviews: [],
           }));
           const deleted = new Set(readDeletedProducts());
-          const validServerProds = mapped.filter((p) => !deleted.has(p.id));
-          setCatalogProducts((current) => {
-            const serverIds = new Set(validServerProds.map((p) => p.id));
-            const localOnly = (current || []).filter(
-              (p) => !serverIds.has(p.id) && !deleted.has(p.id) && String(p.id).startsWith("p17")
-            );
-            const merged = [...localOnly, ...validServerProds];
-            try {
-              localStorage.setItem(KEYS.adminProducts, JSON.stringify(merged));
-            } catch (_) {}
-            return merged;
-          });
+          const validServerProds = mapped.filter(
+            (p) => !deleted.has(p.id) && !deleted.has(p.name) && !/^p\d{1,2}$/.test(String(p.id))
+          );
+          setCatalogProducts(validServerProds);
+          try {
+            localStorage.setItem(KEYS.adminProducts, JSON.stringify(validServerProds));
+          } catch (_) {}
         }
       })
       .catch(() => {});
@@ -416,8 +412,8 @@ export default function ShopPage() {
   const results = useMemo(() => {
     const deleted = new Set(readDeletedProducts());
     const sourceProducts = (
-      catalogProducts && catalogProducts.length > 0 ? catalogProducts : PRODUCTS
-    ).filter((p) => !deleted.has(p.id));
+      catalogProducts && catalogProducts.length > 0 ? catalogProducts : getStoredProducts()
+    ).filter((p) => !deleted.has(p.id) && !deleted.has(p.name) && !/^p\d{1,2}$/.test(String(p.id)));
     const list = sourceProducts.filter((p) => {
       if (filters.categories.length && !filters.categories.includes(p.category)) return false;
       if (filters.sizes.length && !p.sizes.some((s) => filters.sizes.includes(s))) return false;
