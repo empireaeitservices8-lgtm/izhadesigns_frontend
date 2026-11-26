@@ -795,22 +795,23 @@ export default function CheckoutPage() {
       });
 
       const createData = await createRes.json().catch(() => ({}));
-      if (!createRes.ok || !createData.success || !createData.order_id) {
+      if (!createRes.ok || !createData.success) {
         setIsSubmitting(false);
-        return setError(createData.message || "Failed to create payment order. Please try again.");
+        return setError(createData.message || "Failed to initialize Razorpay checkout. Please try again.");
       }
 
       const razorpayKey =
-        process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_U4NeMGhsTUIgu7";
+        createData.key_id ||
+        process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
+        "rzp_test_U4fWdX0XOdD7tg";
 
-      // Step 2: Open Razorpay checkout modal with order_id
-      const options = {
+      // Step 2: Open Razorpay checkout modal
+      const options: any = {
         key: razorpayKey,
-        amount: createData.amount,
+        amount: createData.amount || amountInPaise,
         currency: createData.currency || "INR",
         name: "Izha Blooms",
         description: `Order ${orderNumber}`,
-        order_id: createData.order_id,
         prefill: {
           name: name.trim(),
           email: email.trim() || undefined,
@@ -837,9 +838,9 @@ export default function CheckoutPage() {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                razorpay_order_id: paymentResponse.razorpay_order_id,
+                razorpay_order_id: paymentResponse.razorpay_order_id || null,
                 razorpay_payment_id: paymentResponse.razorpay_payment_id,
-                razorpay_signature: paymentResponse.razorpay_signature,
+                razorpay_signature: paymentResponse.razorpay_signature || null,
               }),
             });
 
@@ -863,6 +864,11 @@ export default function CheckoutPage() {
           }
         },
       };
+
+      // Attach server-created order_id if present
+      if (createData.order_id) {
+        options.order_id = createData.order_id;
+      }
 
       const razorpayInstance = new (window as any).Razorpay(options);
       razorpayInstance.on("payment.failed", function (response: any) {

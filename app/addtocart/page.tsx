@@ -8,14 +8,16 @@ import {
   KEYS,
   inr,
   useStored,
+  readDeletedProducts,
   type CartItem,
   type WishItem,
 } from "@/lib/izha-store";
 import { DEFAULT_ADMIN_PRODUCTS, DEFAULT_OFFER_SETTINGS, type AdminProduct, type OfferSettings } from "@/lib/demo-store";
-import { PRODUCTS } from "@/lib/products";
+import { PRODUCTS, getStoredProducts } from "@/lib/products";
 import { CatalogProductCard } from "@/components/CollectionCatalog";
 import { WhatsAppSvg } from "@/components/WhatsAppFloat";
 import AlertBox from "@/components/izha/AlertBox";
+import { apiUrl } from "@/lib/api-config";
 import {
   EmptyBlock,
   FlowerBadge,
@@ -32,7 +34,7 @@ import {
 export default function CartPage() {
   const [cart, setCart, ready] = useStored<CartItem[]>(KEYS.cart, []);
   const [wish, setWish] = useStored<WishItem[]>(KEYS.wish, []);
-  const [adminProducts] = useStored<AdminProduct[]>(KEYS.adminProducts, []);
+  const [adminProducts, setAdminProducts] = useStored<AdminProduct[]>(KEYS.adminProducts, []);
   const [offers, setOffers] = useStored<OfferSettings>(KEYS.offers, DEFAULT_OFFER_SETTINGS);
   const [liveStockMap, setLiveStockMap] = useState<Record<string, number>>({});
   const [liveProductMap, setLiveProductMap] = useState<Record<string, { image?: string; name?: string; price?: number }>>(() => {
@@ -54,23 +56,55 @@ export default function CartPage() {
   const [stockAlert, setStockAlert] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/products")
+    fetch(apiUrl("/products"))
       .then((res) => res.json())
       .then((data) => {
         if (data?.success && Array.isArray(data.products)) {
+          const deleted = new Set(readDeletedProducts());
           const map: Record<string, number> = {};
           const pMap: Record<string, { image?: string; name?: string; price?: number }> = {};
+          const valid: AdminProduct[] = [];
           for (const p of data.products) {
             map[p.id] = p.stock !== undefined && p.stock !== null ? Number(p.stock) : 15;
             pMap[p.id] = { image: p.image, name: p.name, price: p.price };
+            if (!deleted.has(p.id) && !deleted.has(p.name) && !/^p\d{1,2}$/.test(String(p.id))) {
+              valid.push({
+                id: p.id,
+                name: p.name,
+                category: p.category,
+                categorySlug: p.categorySlug,
+                price: p.price,
+                mrp: p.mrp,
+                stock: p.stock !== undefined && p.stock !== null ? Number(p.stock) : 15,
+                color: p.color || "Dusty Rose",
+                sizes: p.sizes || [],
+                soldOutSizes: p.soldOutSizes || [],
+                soldCount: p.soldCount || 0,
+                image: p.image,
+                gallery: p.gallery || [p.image],
+                isNew: p.isNew,
+                newDays: p.newDays || 30,
+                createdAt: p.createdAt,
+                popularity: p.popularity,
+                description: p.description,
+                fabric: p.fabric,
+                craft: p.craft,
+                fit: p.fit,
+                care: p.care,
+                reviews: [],
+              });
+            }
           }
           setLiveStockMap(map);
           setLiveProductMap(pMap);
+          if (valid.length > 0) {
+            setAdminProducts(valid);
+          }
         }
       })
       .catch(() => {});
 
-    fetch("/api/content/offers")
+    fetch(apiUrl("/content/offers"))
       .then((res) => res.json())
       .then((data) => {
         if (data?.success && data?.data && typeof data.data === "object") {
@@ -115,9 +149,19 @@ export default function CartPage() {
   }, [offers, count, subtotal]);
 
   const recommendations = useMemo(() => {
-    const inCartIds = new Set(cart.map((c) => c.id));
-    return PRODUCTS.filter((p) => !inCartIds.has(p.id)).slice(0, 4);
-  }, [cart]);
+    const inCartIds = new Set(cart.map((c) => String(c.id)));
+    const deleted = new Set(readDeletedProducts());
+    const candidates = adminProducts && adminProducts.length > 0 ? adminProducts : getStoredProducts();
+    return candidates
+      .filter(
+        (p) =>
+          !inCartIds.has(String(p.id)) &&
+          !deleted.has(String(p.id)) &&
+          !deleted.has(p.name) &&
+          !/^p\d{1,2}$/.test(String(p.id))
+      )
+      .slice(0, 4);
+  }, [cart, adminProducts]);
 
   const isLiked = (id: string) => wish.some((x) => x.id === id);
 

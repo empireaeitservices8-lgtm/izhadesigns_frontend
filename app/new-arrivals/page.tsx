@@ -7,6 +7,7 @@ import { Check, ChevronDown, Heart, ListFilter, ShoppingBag, SlidersHorizontal, 
 import { KEYS, useStored, readDeletedProducts, type WishItem } from "@/lib/izha-store";
 import { isProductNew } from "@/lib/products";
 import { DEFAULT_ADMIN_PRODUCTS, type AdminProduct } from "@/lib/demo-store";
+import { apiUrl } from "@/lib/api-config";
 import { PageShell, card, focusRing, serif } from "@/components/izha/ui";
 import Pagination from "@/components/izha/Pagination";
 
@@ -391,7 +392,7 @@ export default function NewArrivalsPage() {
   const [newTagDuration] = useStored<number>(KEYS.newTagDurationDays, 30);
 
   useEffect(() => {
-    fetch("/api/products")
+    fetch(apiUrl("/products"))
       .then((res) => res.json())
       .then((data) => {
         if (data?.success && Array.isArray(data.products) && data.products.length > 0) {
@@ -406,7 +407,7 @@ export default function NewArrivalsPage() {
             color: "Dusty Rose",
             sizes: p.sizes || [],
             soldOutSizes: p.soldOutSizes || [],
-            sizeChart: p.sizeChart || [],
+            soldCount: p.soldCount || 0,
             image: p.image,
             gallery: p.gallery || [p.image],
             isNew: p.isNew,
@@ -421,11 +422,17 @@ export default function NewArrivalsPage() {
             reviews: [],
           }));
           const deleted = new Set(readDeletedProducts());
-          const validServerProds = mapped.filter((p) => !deleted.has(p.id));
+          const validServerProds = mapped.filter(
+            (p) => !deleted.has(p.id) && !deleted.has(p.name) && !/^p\d{1,2}$/.test(String(p.id))
+          );
           setCatalogProducts((current) => {
             const serverIds = new Set(validServerProds.map((p) => p.id));
             const localOnly = (current || []).filter(
-              (p) => !serverIds.has(p.id) && !deleted.has(p.id) && String(p.id).startsWith("p17")
+              (p) =>
+                !serverIds.has(p.id) &&
+                !deleted.has(p.id) &&
+                !deleted.has(p.name) &&
+                !/^p\d{1,2}$/.test(String(p.id))
             );
             const merged = [...localOnly, ...validServerProds];
             try {
@@ -457,7 +464,9 @@ export default function NewArrivalsPage() {
   /* Filter + sort */
   const results = useMemo(() => {
     const deleted = new Set(readDeletedProducts());
-    const validCatalog = (catalogProducts || []).filter((cp) => !deleted.has(cp.id));
+    const validCatalog = (catalogProducts || []).filter(
+      (cp) => !deleted.has(cp.id) && !deleted.has(cp.name) && !/^p\d{1,2}$/.test(String(cp.id))
+    );
     const newOnly = validCatalog.filter((cp) => isProductNew(cp, newTagDuration));
 
     const baseList =
@@ -465,7 +474,9 @@ export default function NewArrivalsPage() {
         ? newOnly
         : validCatalog.length > 0
         ? validCatalog
-        : DEFAULT_ADMIN_PRODUCTS.filter((cp) => !deleted.has(cp.id));
+        : DEFAULT_ADMIN_PRODUCTS.filter(
+            (cp) => !deleted.has(cp.id) && !deleted.has(cp.name) && !/^p\d{1,2}$/.test(String(cp.id))
+          );
 
     const sourceProducts: Product[] = baseList.map((cp, idx) => {
       let days = 1;

@@ -3,7 +3,8 @@
 import { Suspense, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import CollectionCatalog from "@/components/CollectionCatalog";
-import { PRODUCTS, type Product } from "@/lib/products";
+import { PRODUCTS, getStoredProducts, type Product } from "@/lib/products";
+import { readDeletedProducts } from "@/lib/izha-store";
 import { PageShell, serif } from "@/components/izha/ui";
 
 function SearchCatalogContent() {
@@ -11,9 +12,14 @@ function SearchCatalogContent() {
   const q = (searchParams.get("q") ?? "").trim();
 
   const filteredProducts = useMemo(() => {
-    if (!q) return PRODUCTS;
+    const deleted = new Set(readDeletedProducts());
+    const stored = getStoredProducts();
+    const base = (stored && stored.length > 0 ? stored : PRODUCTS).filter(
+      (p) => !deleted.has(p.id) && !deleted.has(p.name) && !/^p\d{1,2}$/.test(p.id)
+    );
+    if (!q) return base;
     const term = q.toLowerCase();
-    return PRODUCTS.filter((p: Product) => {
+    return base.filter((p: Product) => {
       return (
         p.name.toLowerCase().includes(term) ||
         p.category.toLowerCase().includes(term) ||
