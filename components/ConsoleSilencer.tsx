@@ -7,6 +7,11 @@ export default function ConsoleSilencer() {
     if (typeof window === "undefined") return;
 
     const noop = () => {};
+    const rawClear =
+      window.console && typeof window.console.clear === "function"
+        ? window.console.clear.bind(window.console)
+        : noop;
+
     const methods = [
       "log",
       "debug",
@@ -24,7 +29,6 @@ export default function ConsoleSilencer() {
       "timeLog",
       "trace",
       "table",
-      "clear",
       "count",
       "countReset",
     ];
@@ -46,13 +50,23 @@ export default function ConsoleSilencer() {
     const suppress = (e: Event) => {
       e.preventDefault();
       e.stopImmediatePropagation();
+      try {
+        rawClear();
+      } catch (_) {}
       return true;
     };
 
     window.addEventListener("error", suppress, true);
     window.addEventListener("unhandledrejection", suppress, true);
 
+    const intervalId = setInterval(() => {
+      try {
+        rawClear();
+      } catch (_) {}
+    }, 1500);
+
     return () => {
+      clearInterval(intervalId);
       window.removeEventListener("error", suppress, true);
       window.removeEventListener("unhandledrejection", suppress, true);
     };

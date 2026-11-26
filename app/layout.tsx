@@ -33,7 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var noop=function(){};var methods=['log','debug','info','warn','error','assert','dir','dirxml','group','groupCollapsed','groupEnd','time','timeEnd','timeLog','trace','table','clear','count','countReset'];for(var i=0;i<methods.length;i++){try{Object.defineProperty(window.console,methods[i],{get:function(){return noop;},set:function(){},configurable:true});}catch(_){window.console[methods[i]]=noop;}}window.addEventListener('error',function(e){e.preventDefault();e.stopImmediatePropagation();return true;},true);window.addEventListener('unhandledrejection',function(e){e.preventDefault();e.stopImmediatePropagation();return true;},true);}catch(e){}})();`,
+            __html: `(function(){try{var noop=function(){};var rawClear=window.console&&window.console.clear?window.console.clear.bind(window.console):noop;var methods=['log','debug','info','warn','error','assert','dir','dirxml','group','groupCollapsed','groupEnd','time','timeEnd','timeLog','trace','table','count','countReset'];for(var i=0;i<methods.length;i++){try{Object.defineProperty(window.console,methods[i],{get:function(){return noop;},set:function(){},configurable:true});}catch(_){window.console[methods[i]]=noop;}}window.addEventListener('error',function(e){e.preventDefault();e.stopImmediatePropagation();try{rawClear();}catch(_){}return true;},true);window.addEventListener('unhandledrejection',function(e){e.preventDefault();e.stopImmediatePropagation();try{rawClear();}catch(_){}return true;},true);setInterval(function(){try{rawClear();}catch(_){}},1500);}catch(e){}})();`,
           }}
         />
       </head>

@@ -803,7 +803,7 @@ export default function CheckoutPage() {
       const razorpayKey =
         createData.key_id ||
         process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
-        "rzp_test_U4fWdX0XOdD7tg";
+        "rzp_live_U4fyu9x3kwIAYL";
 
       // Step 2: Open Razorpay checkout modal
       const options: any = {
